@@ -12,7 +12,7 @@ import reactor.test.StepVerifier;
 class RedisConnectionIT {
 
     @Autowired
-    @Qualifier("reactiveRedisTemplate") // Match the method name in RedisConfig
+    @Qualifier("reactiveRedisTemplate")
     private ReactiveRedisTemplate<String, String> redisTemplate;
 
     @Test

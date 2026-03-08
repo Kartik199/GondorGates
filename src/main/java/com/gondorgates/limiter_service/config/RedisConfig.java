@@ -12,7 +12,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfig {
 
     @Bean
-    @Primary // This resolves the "expected single matching bean but found 2" error
+    @Primary
     public ReactiveRedisTemplate<String, String> reactiveRedisTemplate(ReactiveRedisConnectionFactory factory) {
         StringRedisSerializer serializer = new StringRedisSerializer();
 
