@@ -1,0 +1,1 @@
+GondorGates is an adaptive, distributed API traffic management platform designed to protect backend services from overload and abuse through intelligent rate limiting.

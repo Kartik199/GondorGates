@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: gondor-gates-limiter
+  threads:
+    virtual:
+      enabled: true # Essential for Java 21 high-throughput
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      lettuce:
+        pool:
+          max-active: 100 # Tuned for high concurrency
+          max-idle: 50
+          min-idle: 10
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
