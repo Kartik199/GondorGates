@@ -2,18 +2,21 @@ package com.gondorgates.limiter_service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean; // New Import
+import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import java.time.Clock;
 
 @SpringBootTest
 class LimiterServiceApplicationTests {
 
-	// This "fakes" the clock bean so the ApplicationContext can start successfully
-	@MockBean
+	@MockitoBean // Replaces @MockBean
 	private Clock clock;
+
+	@MockitoBean // Replaces @MockBean
+	private ReactiveRedisTemplate<String, String> redisTemplate;
 
 	@Test
 	void contextLoads() {
-		// This test will now pass if the app starts without errors
+		// This will now pass using the modern Spring 3.4+ approach
 	}
 }
