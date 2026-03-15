@@ -1,33 +1,36 @@
 server:
   port: 8080
-  shutdown: graceful
+
 spring:
   application:
     name: gondorgates-limiter
-  threads:
-    virtual:
-      enabled: true
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      host: localhost
+      port: 6379
       lettuce:
         pool:
-          max-active: 100
-          max-idle: 50
-          min-idle: 10
-          max-wait: 2000ms
+          max-active: 8
+          max-idle: 8
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health, info, metrics
-  endpoint:
-    health:
-      show-details: always
-      probes:
-        enabled: true
-  health:
-    redis:
-      enabled: true
+gondorgates:
+  policies:
+    # 1. Strict Policy for Authentication
+    - path: /api/login
+      capacity: 5
+      refillRate: 1
+
+    # 2. Medium Policy for Orders
+    - path: /api/orders
+      capacity: 20
+      refillRate: 5
+
+    # 3. Test Policy for your Integration Test (GondorGatesWebFilterIT)
+    - path: /api/test
+      capacity: 10
+      refillRate: 2
+
+    # 4. Default Catch-all (Optional)
+    - path: /
+      capacity: 100
+      refillRate: 10
