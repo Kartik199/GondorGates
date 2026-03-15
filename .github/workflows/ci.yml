@@ -33,7 +33,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Verify Application and Run All Tests]
+      - name: Verify Application and Run All Tests
         run: ./mvnw -B clean verify
         env:
           SPRING_DATA_REDIS_HOST: localhost
