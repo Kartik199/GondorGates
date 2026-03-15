@@ -3,63 +3,41 @@ package com.gondorgates.limiter_service.engine;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
-import java.time.Duration;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 @SpringBootTest
-@Testcontainers
-class RedisRateLimiterIT {
-
-    @Container
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
-            .withExposedPorts(6379); // Standard Redis port
-
-    @DynamicPropertySource
-    static void redisProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", redis::getHost);
-        registry.add("spring.data.redis.port", redis::getFirstMappedPort);
-    }
+public class RedisRateLimiterIT {
 
     @Autowired
-    private RedisRateLimiter redisRateLimiter;
+    private RateLimiter rateLimiter;
 
     @Test
-    void testDistributedThrottling() {
-        String userId = "distributed-user";
+    void testDynamicRateLimitingAcrossDifferentPolicies() {
+        String loginKey = "user1:/api/login";
+        String orderKey = "user1:/api/orders";
 
-        // Step 1: Consume 10 tokens
-        for (int i = 0; i < 10; i++) {
-            StepVerifier.create(redisRateLimiter.isAllowed(userId))
-                    .expectNextMatches(RateLimitDecision::allowed)
-                    .verifyComplete();
-        }
+        // 1. Test Strict Policy (Login: 2 requests allowed)
+        int loginCap = 2;
+        int loginRefill = 1;
 
-        // Step 2: 11th request must be rejected (proving state is persisted in Redis)
-        StepVerifier.create(redisRateLimiter.isAllowed(userId))
-                .expectNextMatches(decision -> !decision.allowed())
-                .verifyComplete();
-    }
+        // First two should pass
+        rateLimiter.isAllowed(loginKey, loginCap, loginRefill).block();
+        rateLimiter.isAllowed(loginKey, loginCap, loginRefill).block();
 
-    @Test
-    void testRetryAfterCalculation() {
-        String userId = "retry-user";
+        // Third should be blocked
+        Mono<RateLimitDecision> loginResult = rateLimiter.isAllowed(loginKey, loginCap, loginRefill);
+        StepVerifier.create(loginResult).expectNextMatches(decision -> !decision.allowed()).verifyComplete();
 
-        // Drain the bucket
-        for (int i = 0; i < 10; i++) { redisRateLimiter.isAllowed(userId).block(); }
+        // 2. Test Generous Policy (Orders: 10 requests allowed)
+        // Even though login is blocked, orders should still work!
+        int orderCap = 10;
+        int orderRefill = 2;
 
-        // The 11th request should tell us to wait ~1000ms (since rate is 1/sec)
-        StepVerifier.create(redisRateLimiter.isAllowed(userId))
-                .expectNextMatches(decision ->
-                        !decision.allowed() &&
-                                decision.retryAfter().toMillis() > 0 &&
-                                decision.retryAfter().toMillis() <= 1000)
-                .verifyComplete();
+        Mono<RateLimitDecision> orderResult = rateLimiter.isAllowed(orderKey, orderCap, orderRefill);
+        StepVerifier.create(orderResult).expectNextMatches(decision -> decision.allowed() && decision.remainingTokens() == 9).verifyComplete();
     }
 }

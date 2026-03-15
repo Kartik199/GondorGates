@@ -1,43 +1,53 @@
 package com.gondorgates.limiter_service.engine;
 
-import com.gondorgates.limiter_service.util.RateLimitKeyUtils;
-import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 @Service
 public class RedisRateLimiter implements RateLimiter {
 
-    private final ReactiveRedisTemplate<String, String> redisTemplate;
+    private static final Logger log = LoggerFactory.getLogger(RedisRateLimiter.class);
+    private final ReactiveStringRedisTemplate redisTemplate;
     private final RedisScript<List> script;
-    private final Clock clock;
 
-    public RedisRateLimiter(ReactiveRedisTemplate<String, String> redisTemplate, RedisScript<List> script, Clock clock) {
+    public RedisRateLimiter(ReactiveStringRedisTemplate redisTemplate, RedisScript<List> script) {
         this.redisTemplate = redisTemplate;
         this.script = script;
-        this.clock = clock;
     }
 
     @Override
-    public Mono<RateLimitDecision> isAllowed(String identifier) {
-        String key = RateLimitKeyUtils.buildKey("user", identifier, "default-api");
+    public Mono<RateLimitDecision> isAllowed(String key, int capacity, int refillRate) {
+        return redisTemplate.execute(
+                        script,
+                        List.of(key),
+                        List.of(
+                                String.valueOf(capacity),
+                                String.valueOf(refillRate),
+                                String.valueOf(Instant.now().getEpochSecond()),
+                                "1" // amount requested
+                        )
+                )
+                .next()
+                .map(results -> {
+                    // Lua script returns [allowed (0/1), remaining_tokens, retry_after]
+                    boolean allowed = ((Long) results.get(0)) == 1L;
+                    long remaining = (Long) results.get(1);
+                    long retryAfter = (Long) results.get(2);
 
-        List<String> keys = List.of(key);
-        Object[] args = new Object[]{"10", "1", String.valueOf(clock.millis()), "1", "60"};
-
-        return redisTemplate.execute(script, keys, List.of(args)).next()
-                .map(result -> {
-                    // Result format from Lua: {allowed, tokens, retry_after}
-                    boolean allowed = ((Long) result.get(0)) == 1L;
-                    long remaining = (Long) result.get(1);
-                    long retryAfterMs = (Long) result.get(2);
-
-                    return new RateLimitDecision(allowed, remaining, Duration.ofMillis(retryAfterMs));
+                    return new RateLimitDecision(allowed, remaining, Duration.ofSeconds(retryAfter));
+                })
+                .onErrorResume(e -> {
+                    log.error("CRITICAL: Redis Limiter failed. Reason: {}", e.getMessage());
+                    // Fail open: allow the request if Redis is dead
+                    return Mono.just(new RateLimitDecision(true, 0, Duration.ZERO));
                 });
     }
 }
