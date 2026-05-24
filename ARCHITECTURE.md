@@ -4,7 +4,7 @@ nav_order: 2
 description: Technical vision, architectural decisions, and engineering history
 ---
 
-# GondorGates — Technical Roadmap
+# GondorGates
 
 ## What GondorGates is
 
