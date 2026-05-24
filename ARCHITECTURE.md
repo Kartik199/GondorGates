@@ -8,7 +8,7 @@ description: Technical vision, architectural decisions, and engineering history
 
 ## What GondorGates is
 
-GondorGates is a distributed API traffic-control gateway built to enforce globally consistent rate limits across horizontally scaled backend services. It is designed as middleware: it sits on the request hot path, makes a sub-millisecond decision backed by an atomic Redis operation, and either passes the request through or returns a `429 Too Many Requests` with retry metadata.
+GondorGates is a distributed API traffic-control gateway built to enforce globally consistent rate limits across horizontally scaled backend services. It is designed as middleware: it sits on the request hot path, evaluates one atomic Redis operation per policy dimension in sequence, and either passes the request through or returns a `429 Too Many Requests` with retry metadata.
 
 It is not a service mesh, not a full API gateway, and not a quota-billing system. It is a purpose-built, reactive rate limiter that is correct under concurrency, configurable without redeployment, and resilient to its own backing store going down.
 
@@ -21,10 +21,10 @@ It is not a service mesh, not a full API gateway, and not a quota-billing system
 | Property | How it is achieved |
 |---|---|
 | **Distributed correctness** | All token bucket state lives in Redis. A single atomic Lua script performs read → refill → decide → write in one round-trip. No application-level locking, no CAS retry loop at the Java layer. |
-| **Sub-5ms decision latency** | Spring WebFlux + Lettuce reactive Redis client. Non-blocking I/O on an event loop — the calling thread never parks waiting for Redis. |
+| **Non-blocking I/O** | The application uses Project Reactor (`Mono`/`Flux`) operators exclusively. The calling thread is never parked waiting for Redis — it is released back to handle other connections while the Redis response is in flight. Netty is the embedded server provided by Spring Boot's auto-configuration; the application code makes no direct reference to Netty. |
 | **Horizontal scalability** | GondorGates application instances are stateless. Add more instances behind a load balancer; all share the same Redis state. |
 | **Fail-open resiliency** | If Redis is unreachable, requests are allowed through. Rate limiting is a protection mechanism, not a gating mechanism — API availability is the higher priority. |
-| **Configuration-driven** | Policies are YAML. No redeployment is required to change capacity or refill rates (hot reload is a planned feature). Zero hardcoded limits in source code. |
+| **Configuration-driven** | Policies are declared in YAML and version-controlled alongside the code. Changing a policy currently requires a restart. Hot reload (applying changes without restart) is a planned feature. Zero hardcoded limits in source code. |
 
 ### The token bucket model
 
@@ -59,7 +59,7 @@ Examples:
 
 ### Spring WebFlux over Spring MVC
 
-GondorGates sits on the hot path of every request. Spring MVC assigns one thread per request; that thread blocks on the Redis call. At 1000 concurrent requests and a 2ms Redis latency, MVC needs 1000 threads pinned — ~64MB of stack alone. WebFlux + Netty handles the same load on O(CPU cores) threads via non-blocking I/O. This is not premature optimisation — it is the correct architecture for middleware that is always in the critical path.
+GondorGates sits on the hot path of every request. Spring MVC assigns one thread per request; that thread blocks on the Redis call. At 1000 concurrent requests and a 2ms Redis latency, MVC needs 1000 threads pinned simultaneously — hundreds of megabytes of stack, plus context-switch overhead at scale. Spring WebFlux uses Reactor operators (`Mono`/`Flux`) and non-blocking I/O: the calling thread is released back while waiting for Redis and can serve other connections in the meantime. The application code makes no direct reference to Netty — it is the embedded server provided by Spring Boot's auto-configuration when `spring-boot-starter-webflux` is on the classpath. This is not premature optimisation — it is the correct architecture for middleware that is always in the critical path.
 
 ### Redis Lua over application-level locking
 
@@ -103,24 +103,12 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 ### Epic 5 — Multi-Dimensional Rate Limiting ✅
 `RateLimitDimension` enum (GLOBAL, USER, IP, API_KEY), `DimensionPolicy` POJO (type + capacity + refillRate), `RateLimitPolicy` migrated from flat fields to `List<DimensionPolicy>`, `ClientIdentityResolver.resolveForDimension()`, `GondorGatesWebFilter` refactored to evaluate dimensions serially via `Flux.concatMap` + `takeUntil` + `reduce`, `RateLimitKeyUtils` now active. All policies in YAML restructured to dimension format.
 
+### Epic 6 — Observability ✅
+`micrometer-registry-prometheus` dependency added; `/actuator/prometheus` endpoint exposed. `GondorGatesWebFilter` instrumented with `gondor.requests.total` counter (tags: `path`, `outcome`), `gondor.filter.duration` timer (tags: `path`, `outcome`), and `gondor.bucket.remaining` gauge (tags: `path`, `dimension`) — registered once per `(dimension, path)` pair via `ConcurrentHashMap<String, AtomicLong>` and updated on every request. `RedisRateLimiter` instrumented with `gondor.redis.eval.duration` timer and `gondor.redis.errors.total` counter. `PrometheusMetricsIT` validates all four metrics are recorded on a real request.
+
 ---
 
 ## Remaining roadmap
-
-### Epic 6 — Observability ⏳
-
-**Objective**: Make the limiter's behaviour visible in production without adding log noise.
-
-**Planned work:**
-- Add `micrometer-registry-prometheus` dependency
-- Instrument `GondorGatesWebFilter` with counters: `gondorgates.requests.allowed{path, dimension}` and `gondorgates.requests.denied{path, dimension}`
-- Instrument `RedisRateLimiter` with a timer: `gondorgates.redis.eval.latency`
-- Expose `/actuator/prometheus` endpoint
-- Add `HealthCheckIT` assertions for the prometheus scrape endpoint
-
-**Architecture note**: Metrics must be recorded after the decision, inside the `flatMap` that already branches allowed vs. denied. No new components needed — instrumentation is additive.
-
----
 
 ### Epic 7 — Grafana Dashboard ⏳
 
@@ -152,8 +140,8 @@ GondorGates (:8080)
 Demo Backend API (:9090)   ← simple Spring Boot app with /api/login, /api/orders endpoints
   ↓
 Redis (:6379)
-  ↓
-Prometheus (:9090)
+
+Prometheus (:9091)         ← scrapes GondorGates /actuator/prometheus
   ↓
 Grafana (:3000)
 ```
