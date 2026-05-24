@@ -6,6 +6,8 @@ remote_theme: just-the-docs/just-the-docs@v0.10.0
 url: "https://kartik199.github.io"
 baseurl: "/GondorGates"
 
+permalink: pretty
+
 color_scheme: dark
 
 search_enabled: true
