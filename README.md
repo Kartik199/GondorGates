@@ -46,7 +46,7 @@ A naive GET-then-SET approach races under concurrent load — two threads can bo
 
 #### WebFlux
 
-GondorGates is designed to sit on the hot path of every API request. Spring MVC would block a thread per request waiting on Redis. WebFlux + Lettuce uses non-blocking I/O on an event loop — one thread can serve thousands of concurrent in-flight Redis calls.
+GondorGates is designed to sit on the hot path of every API request. Spring MVC would block a thread per request waiting on Redis. Spring WebFlux uses Reactor operators (`Mono`/`Flux`) and non-blocking I/O — the calling thread is released back to handle other connections while waiting for Redis to respond. Netty is the embedded server provided by Spring Boot's auto-configuration; the application code makes no direct reference to Netty.
 
 #### Token Bucket algorithm
 
@@ -180,7 +180,7 @@ gondorgates:
 | Header | Present when | Value |
 |---|---|---|
 | `X-RateLimit-Remaining` | Always | Minimum remaining tokens across all evaluated dimensions |
-| `Retry-After` | 429 response only | Milliseconds until the denying bucket has a token available |
+| `Retry-After` | 429 response only | Seconds until the denying bucket has a token available |
 
 ---
 
@@ -226,7 +226,7 @@ X-User-Id: user-123          ← drives the USER dimension
 X-API-Key: key-abc           ← drives the API_KEY dimension (takes priority over X-User-Id)
 ```
 
-If neither header is present, GondorGates falls back to the request's remote IP for `IP` dimension evaluation, and uses `"anonymous"` for `USER`/`API_KEY`.
+If `X-User-Id` is absent, the `USER` dimension falls back to `"anonymous"`. If `X-API-Key` is absent, the `API_KEY` dimension falls back to `"anonymous"`. The `IP` dimension uses the request's remote address and is only evaluated if your policy declares an `IP` dimension — it is never inspected implicitly.
 
 ---
 
@@ -254,7 +254,7 @@ Each bucket hash contains two fields: `tokens` (current count) and `last_refill`
 | 3 — Web Filter | Done | `GondorGatesWebFilter`, `ClientIdentityResolver`, HTTP 429 handling |
 | 4 — Policy Engine | Done | YAML-driven policies, `PolicyResolver`, longest-match-wins |
 | 5 — Multi-Dimensional | Done | GLOBAL/USER/IP/API_KEY dimensions, hierarchical short-circuit |
-| 6 — Observability | Planned | Micrometer + Prometheus metrics at `/actuator/prometheus` |
+| 6 — Observability | Done | Micrometer + Prometheus metrics at `/actuator/prometheus` |
 | 7 — Grafana Dashboard | Planned | Real-time traffic visualisation |
 | 8 — Deployment | Planned | Dockerfile, full `docker compose` stack, k6 load testing |
 

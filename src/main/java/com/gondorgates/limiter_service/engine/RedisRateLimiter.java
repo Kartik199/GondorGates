@@ -1,5 +1,7 @@
 package com.gondorgates.limiter_service.engine;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
@@ -18,16 +20,21 @@ public class RedisRateLimiter implements RateLimiter {
     private final ReactiveStringRedisTemplate redisTemplate;
     @SuppressWarnings("rawtypes")
     private final RedisScript<List> script;
+    private final MeterRegistry meterRegistry;
 
     @SuppressWarnings("rawtypes")
-    public RedisRateLimiter(ReactiveStringRedisTemplate redisTemplate, RedisScript<List> script) {
+    public RedisRateLimiter(ReactiveStringRedisTemplate redisTemplate, RedisScript<List> script,
+                             MeterRegistry meterRegistry) {
         this.redisTemplate = redisTemplate;
         this.script = script;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
     public Mono<RateLimitDecision> isAllowed(String key, int capacity, int refillRate) {
         long ttlSeconds = Math.max(60L, (long) capacity * 10 / refillRate);
+        Timer.Sample sample = Timer.start(meterRegistry);
+
         return redisTemplate.execute(
                         script,
                         List.of(key),
@@ -41,16 +48,15 @@ public class RedisRateLimiter implements RateLimiter {
                 )
                 .next()
                 .map(results -> {
-                    // Lua script returns [allowed (0/1), remaining_tokens, retry_after_ms]
+                    sample.stop(meterRegistry.timer("gondor.redis.eval.duration"));
                     boolean allowed = ((Long) results.get(0)) == 1L;
                     long remaining = (Long) results.get(1);
                     long retryAfterMs = (Long) results.get(2);
-
                     return new RateLimitDecision(allowed, remaining, Duration.ofMillis(retryAfterMs));
                 })
                 .onErrorResume(e -> {
+                    meterRegistry.counter("gondor.redis.errors.total").increment();
                     log.error("CRITICAL: Redis Limiter failed. Reason: {}", e.getMessage());
-                    // Fail open: allow the request if Redis is dead
                     return Mono.just(new RateLimitDecision(true, 0, Duration.ZERO));
                 });
     }
