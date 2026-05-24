@@ -1,3 +1,9 @@
+---
+title: Architecture
+nav_order: 2
+description: Technical vision, architectural decisions, and engineering history
+---
+
 # GondorGates — Technical Roadmap
 
 ## What GondorGates is

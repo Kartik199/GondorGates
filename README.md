@@ -1,3 +1,10 @@
+---
+title: Home
+nav_order: 1
+permalink: /
+description: GondorGates — Distributed API rate-limiting gateway
+---
+
 # GondorGates
 
 GondorGates is a distributed API rate-limiting gateway built with Spring WebFlux and Redis. It sits in front of your backend services and enforces configurable traffic limits per endpoint, per dimension (global, per-user, per-IP, per-API key) — atomically and without a single distributed lock.
