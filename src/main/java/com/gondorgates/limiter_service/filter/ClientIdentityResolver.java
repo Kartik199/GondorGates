@@ -4,16 +4,25 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.net.InetSocketAddress;
+
 @Component
 public class ClientIdentityResolver {
 
-    private static final String DEFAULT_USER = "anonymous";
-    private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String ANONYMOUS = "anonymous";
+    private static final String HEADER_API_KEY = "X-API-Key";
+    private static final String HEADER_USER_ID = "X-User-Id";
 
     public String resolve(ServerHttpRequest request) {
-        String userId = request.getHeaders().getFirst(USER_ID_HEADER);
+        String apiKey = request.getHeaders().getFirst(HEADER_API_KEY);
+        if (StringUtils.hasText(apiKey)) return apiKey;
 
-        // Return 'anonymous' if header is missing or empty to prevent NullPointer
-        return StringUtils.hasText(userId) ? userId : DEFAULT_USER;
+        String userId = request.getHeaders().getFirst(HEADER_USER_ID);
+        if (StringUtils.hasText(userId)) return userId;
+
+        InetSocketAddress remoteAddress = request.getRemoteAddress();
+        if (remoteAddress != null) return remoteAddress.getAddress().getHostAddress();
+
+        return ANONYMOUS;
     }
 }
