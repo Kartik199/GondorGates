@@ -22,7 +22,12 @@ public class PolicyResolver {
 
     public RateLimitPolicy resolve(String path) {
         return policies.stream()
-                .filter(p -> path.startsWith(p.getPath()))
+                .filter(p -> {
+                    String policyPath = p.getPath();
+                    return policyPath.equals("/")
+                            || path.equals(policyPath)
+                            || path.startsWith(policyPath + "/");
+                })
                 .findFirst()
                 .orElse(null);
     }

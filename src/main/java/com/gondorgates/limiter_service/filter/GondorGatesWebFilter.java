@@ -2,6 +2,7 @@ package com.gondorgates.limiter_service.filter;
 
 import com.gondorgates.limiter_service.engine.RateLimiter;
 import com.gondorgates.limiter_service.policy.PolicyResolver;
+import com.gondorgates.limiter_service.policy.RateLimitPolicy;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -28,22 +29,30 @@ public class GondorGatesWebFilter implements WebFilter {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
+        RateLimitPolicy policy = policyResolver.resolve(path);
 
-        return Mono.justOrEmpty(policyResolver.resolve(path))
-                .flatMap(policy -> {
-                    String clientId = identityResolver.resolve(exchange.getRequest());
-                    String limitKey = clientId + ":" + policy.getPath();
+        if (policy == null) {
+            return chain.filter(exchange);
+        }
 
-                    return rateLimiter.isAllowed(limitKey, policy.getCapacity(), policy.getRefillRate())
-                            .flatMap(decision -> {
-                                if (decision.allowed()) {
-                                    return chain.filter(exchange);
-                                } else {
-                                    return handle429(exchange);
-                                }
-                            });
-                })
-                .switchIfEmpty(chain.filter(exchange).then(Mono.empty()));
+        String clientId = identityResolver.resolve(exchange.getRequest());
+        String limitKey = clientId + ":" + policy.getPath();
+
+        return rateLimiter.isAllowed(limitKey, policy.getCapacity(), policy.getRefillRate())
+                .flatMap(decision -> {
+                    if (decision.allowed()) {
+                        exchange.getResponse().beforeCommit(() -> {
+                            exchange.getResponse().getHeaders().set("X-RateLimit-Limit", String.valueOf(policy.getCapacity()));
+                            exchange.getResponse().getHeaders().set("X-RateLimit-Remaining", String.valueOf(decision.remainingTokens()));
+                            return Mono.empty();
+                        });
+                        return chain.filter(exchange);
+                    }
+                    exchange.getResponse().getHeaders().set("X-RateLimit-Limit", String.valueOf(policy.getCapacity()));
+                    exchange.getResponse().getHeaders().set("X-RateLimit-Remaining", String.valueOf(decision.remainingTokens()));
+                    exchange.getResponse().getHeaders().set("Retry-After", String.valueOf(decision.retryAfter().toSeconds()));
+                    return handle429(exchange);
+                });
     }
 
     private Mono<Void> handle429(ServerWebExchange exchange) {

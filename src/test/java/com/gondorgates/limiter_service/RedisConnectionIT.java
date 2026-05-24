@@ -2,9 +2,8 @@ package com.gondorgates.limiter_service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier; // Add this import
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.redis.core.ReactiveRedisTemplate;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -12,8 +11,7 @@ import reactor.test.StepVerifier;
 class RedisConnectionIT {
 
     @Autowired
-    @Qualifier("reactiveRedisTemplate")
-    private ReactiveRedisTemplate<String, String> redisTemplate;
+    private ReactiveStringRedisTemplate redisTemplate;
 
     @Test
     void testRedisConnection() {
