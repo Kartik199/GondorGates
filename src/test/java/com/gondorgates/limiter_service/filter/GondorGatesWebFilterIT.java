@@ -19,8 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class GondorGatesWebFilterIT {
 
     private static final String TEST_USER = "test-user";
-    // Key format mirrors what GondorGatesWebFilter builds: clientId + ":" + policy.getPath()
-    private static final String RATE_LIMIT_KEY = TEST_USER + ":/api/test";
+    // Keys mirror RateLimitKeyUtils.buildKey: rate_limit:{dimension}:{id}:{path}
+    private static final String GLOBAL_KEY = "rate_limit:global:GLOBAL:/api/test";
+    private static final String USER_KEY   = "rate_limit:user:" + TEST_USER + ":/api/test";
 
     @Autowired
     private WebTestClient webTestClient;
@@ -36,7 +37,7 @@ public class GondorGatesWebFilterIT {
 
     @BeforeEach
     void resetRateLimitState() {
-        redisTemplate.delete(RATE_LIMIT_KEY).block();
+        redisTemplate.delete(GLOBAL_KEY, USER_KEY).block();
     }
 
     @Test

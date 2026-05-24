@@ -22,20 +22,41 @@ gondorgates:
   policies:
     # 1. Strict Policy for Authentication
     - path: /api/login
-      capacity: 5
-      refillRate: 1
+      dimensions:
+        - type: GLOBAL
+          capacity: 100
+          refillRate: 10
+        - type: USER
+          capacity: 5
+          refillRate: 1
 
     # 2. Medium Policy for Orders
     - path: /api/orders
-      capacity: 20
-      refillRate: 5
+      dimensions:
+        - type: GLOBAL
+          capacity: 500
+          refillRate: 50
+        - type: USER
+          capacity: 20
+          refillRate: 5
 
-    # 3. Test Policy for your Integration Test (GondorGatesWebFilterIT)
+    # 3. Test Policy for Integration Test (GondorGatesWebFilterIT)
+    #    USER capacity=10 intentionally preserved to keep existing test assertions passing
     - path: /api/test
-      capacity: 10
-      refillRate: 2
+      dimensions:
+        - type: GLOBAL
+          capacity: 50
+          refillRate: 5
+        - type: USER
+          capacity: 10
+          refillRate: 2
 
-    # 4. Default Catch-all (Optional)
+    # 4. Default Catch-all
     - path: /
-      capacity: 100
-      refillRate: 10
+      dimensions:
+        - type: GLOBAL
+          capacity: 1000
+          refillRate: 100
+        - type: USER
+          capacity: 100
+          refillRate: 10
