@@ -1,0 +1,31 @@
+title: GondorGates
+description: Distributed API rate-limiting gateway — reactive, atomic, multi-dimensional.
+
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+
+url: "https://kartik199.github.io"
+baseurl: "/GondorGates"
+
+color_scheme: dark
+
+search_enabled: true
+search:
+  heading_level: 3
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
+
+footer_content: "GondorGates — Distributed API Rate Limiting Gateway"
+
+back_to_top: true
+back_to_top_text: "Back to top"
+
+gh_edit_link: true
+gh_edit_link_text: "Edit this page on GitHub"
+gh_edit_repository: "https://github.com/kartik199/GondorGates"
+gh_edit_branch: "main"
+gh_edit_view_mode: "tree"
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-remote-theme
