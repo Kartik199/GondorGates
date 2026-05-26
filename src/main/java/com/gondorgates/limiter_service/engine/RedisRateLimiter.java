@@ -48,7 +48,9 @@ public class RedisRateLimiter implements RateLimiter {
                 )
                 .next()
                 .map(results -> {
-                    sample.stop(meterRegistry.timer("gondor.redis.eval.duration"));
+                    sample.stop(Timer.builder("gondor.redis.eval.duration")
+                            .publishPercentileHistogram(true)
+                            .register(meterRegistry));
                     boolean allowed = ((Long) results.get(0)) == 1L;
                     long remaining = (Long) results.get(1);
                     long retryAfterMs = (Long) results.get(2);

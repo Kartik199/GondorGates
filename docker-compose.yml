@@ -20,8 +20,46 @@ services:
       timeout: 5s
       retries: 5
 
+  gondor-prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: gondor-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - gondor-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gondor-grafana:
+    image: grafana/grafana:10.4.2
+    container_name: gondor-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - gondor_grafana_data:/var/lib/grafana
+    networks:
+      - gondor-network
+    depends_on:
+      gondor-prometheus:
+        condition: service_healthy
+
 volumes:
   gondor_data:
+  gondor_grafana_data:
 
 networks:
   gondor-network:

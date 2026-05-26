@@ -67,6 +67,7 @@ public class GondorGatesWebFilter implements WebFilter {
                     sample.stop(Timer.builder("gondor.filter.duration")
                             .tag("path", policyPath)
                             .tag("outcome", outcome)
+                            .publishPercentileHistogram(true)
                             .register(meterRegistry));
 
                     meterRegistry.counter("gondor.requests.total",
