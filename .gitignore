@@ -34,3 +34,6 @@ build/
 
 # macOS
 **/.DS_Store
+
+# Local environment variables — never commit this file
+.env
