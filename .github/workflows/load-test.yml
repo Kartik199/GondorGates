@@ -1,0 +1,50 @@
+name: GondorGates Load Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  load-test:
+    name: k6 Load Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start full stack
+        run: docker compose -f docker-compose.full.yml up -d --build
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-load-test
+
+      - name: Wait for GondorGates to be healthy
+        run: |
+          for i in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health)
+            if [ "$code" = "200" ]; then echo "GondorGates is UP"; exit 0; fi
+            echo "Waiting... ($i/30)"
+            sleep 5
+          done
+          echo "GondorGates did not become healthy in time"
+          docker compose -f docker-compose.full.yml logs gondor-app
+          exit 1
+
+      - name: Run k6 load test
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: k6/load-test.js
+          flags: --out json=k6-results.json
+        env:
+          BASE_URL: http://localhost:8080
+
+      - name: Upload k6 results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-results
+          path: k6-results.json
+          retention-days: 30
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.full.yml down --volumes

@@ -127,30 +127,34 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 
 ---
 
-### Epic 8 — Deployment & Product Readiness ⏳
+### Epic 8 — Deployment & Product Readiness ✅
 
 **Objective**: Single-command startup of the full stack; demonstrable under load.
 
-**Planned deployment architecture:**
+**Deployment architecture:**
 ```
 Client
   ↓
-GondorGates (:8080)
+GondorGates (:8080)          ← rate limiting filter + optional proxy to backend
   ↓
-Demo Backend API (:9090)   ← simple Spring Boot app with /api/login, /api/orders endpoints
+Demo Backend (nginx :9090)   ← returns {"status":"ok"} for /api/login, /api/orders
   ↓
-Redis (:6379)
+Redis (:6379)                ← token bucket state
 
-Prometheus (:9091)         ← scrapes GondorGates /actuator/prometheus
+Prometheus (:9091)           ← scrapes GondorGates /actuator/prometheus every 5s
   ↓
-Grafana (:3000)
+Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashboard
 ```
 
-**Planned work:**
-- `Dockerfile` for GondorGates (multi-stage build, distroless runtime image)
-- Full `docker-compose.yml` with GondorGates, Demo API, Redis, Prometheus, Grafana
-- k6 load test script: ramp to 200 VUs, hit `/api/login` and `/api/orders`, assert 429 rate > 0
-- Integration of k6 into GitHub Actions CI as a smoke test stage
+**Delivered:**
+- Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; Alpine JRE runtime image
+- `docker-compose.full.yml` — single `docker compose up -d --build` starts all five services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
+- `BackendProxyHandler` — transparent WebClient proxy activated by `BACKEND_URL` env var; strips hop-by-hop headers, forwards method/path/query/body, streams response back. When `BACKEND_URL` is blank, filter falls through to `chain.filter()` unchanged (embedded mode)
+- k6 load test (`k6/load-test.js`) — two scenarios run concurrently:
+  - **Correctness**: 20 VUs share one user ID against `/api/login`; `gondor_allowed ≤ 5` threshold proves the Lua atomic eval has no double-spend race condition under concurrent load
+  - **Throughput**: ramp 1 → 100 VUs against `/api/orders`; records real P95 filter latency; asserts at least one 429 fires under GLOBAL bucket pressure
+- `.github/workflows/load-test.yml` — `workflow_dispatch` workflow: builds full stack, waits for health, runs k6 via `grafana/k6-action`, uploads `k6-results.json` as a 30-day artifact
+- `.env.example` — documents `GRAFANA_ADMIN_PASSWORD`; `.env` gitignored; anonymous access means admin password is not needed for day-to-day use
 
 ---
 

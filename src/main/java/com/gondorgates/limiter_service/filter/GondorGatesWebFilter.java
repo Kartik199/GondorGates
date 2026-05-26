@@ -4,6 +4,7 @@ import com.gondorgates.limiter_service.engine.RateLimitDecision;
 import com.gondorgates.limiter_service.engine.RateLimiter;
 import com.gondorgates.limiter_service.policy.PolicyResolver;
 import com.gondorgates.limiter_service.policy.RateLimitPolicy;
+import com.gondorgates.limiter_service.proxy.BackendProxyHandler;
 import com.gondorgates.limiter_service.util.RateLimitKeyUtils;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -30,17 +31,20 @@ public class GondorGatesWebFilter implements WebFilter {
     private final ClientIdentityResolver identityResolver;
     private final PolicyResolver policyResolver;
     private final MeterRegistry meterRegistry;
+    private final BackendProxyHandler backendProxyHandler;
 
     // Backing store for gondor.bucket.remaining gauges — one AtomicLong per (dimension:path) pair.
     // Gauges are registered once on first sight and updated on every subsequent request.
     private final ConcurrentHashMap<String, AtomicLong> bucketGauges = new ConcurrentHashMap<>();
 
     public GondorGatesWebFilter(RateLimiter rateLimiter, ClientIdentityResolver identityResolver,
-                                 PolicyResolver policyResolver, MeterRegistry meterRegistry) {
+                                 PolicyResolver policyResolver, MeterRegistry meterRegistry,
+                                 BackendProxyHandler backendProxyHandler) {
         this.rateLimiter = rateLimiter;
         this.identityResolver = identityResolver;
         this.policyResolver = policyResolver;
         this.meterRegistry = meterRegistry;
+        this.backendProxyHandler = backendProxyHandler;
     }
 
     @Override
@@ -81,7 +85,9 @@ public class GondorGatesWebFilter implements WebFilter {
                                     .set("X-RateLimit-Remaining", String.valueOf(decision.remainingTokens()));
                             return Mono.empty();
                         });
-                        return chain.filter(exchange);
+                        return backendProxyHandler.isEnabled()
+                                ? backendProxyHandler.proxy(exchange)
+                                : chain.filter(exchange);
                     }
                     exchange.getResponse().getHeaders().set("X-RateLimit-Remaining", "0");
                     exchange.getResponse().getHeaders()
