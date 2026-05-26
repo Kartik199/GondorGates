@@ -23,6 +23,7 @@ management:
       show-details: always
 
 gondorgates:
+  backend-url: ${BACKEND_URL:}
   policies:
     # 1. Strict Policy for Authentication
     - path: /api/login
