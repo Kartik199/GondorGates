@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -19,15 +20,24 @@ import java.util.List;
 @TestPropertySource(properties = "gondorgates.admin-token=test-admin-token")
 public class AdminPolicyControllerIT {
 
-    private static final String TOKEN        = "test-admin-token";
-    private static final String CUSTOM_PATH  = "/api/custom-probe";
+    private static final String TOKEN       = "test-admin-token";
+    private static final String CUSTOM_PATH = "/api/custom-probe";
 
     @Autowired WebTestClient webTestClient;
     @Autowired RedisPolicyStore policyStore;
+    @Autowired ReactiveStringRedisTemplate redisTemplate;
 
     @BeforeEach
     void cleanup() {
         policyStore.delete(CUSTOM_PATH).block();
+        // Clean up token bucket keys so tests are independent of run order
+        redisTemplate.delete(
+                "rate_limit:global:GLOBAL:" + CUSTOM_PATH,
+                "rate_limit:user:probe-user:" + CUSTOM_PATH,
+                "rate_limit:user:user-alpha:" + CUSTOM_PATH,
+                "rate_limit:user:user-beta:" + CUSTOM_PATH,
+                "rate_limit:user:user-gamma:" + CUSTOM_PATH
+        ).block();
     }
 
     @Test
@@ -114,6 +124,78 @@ public class AdminPolicyControllerIT {
                 .bodyValue(bad)
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void rejectsPolicyWithZeroCapacity() {
+        DimensionPolicy dim = new DimensionPolicy();
+        dim.setType(RateLimitDimension.USER);
+        dim.setCapacity(0);
+        dim.setRefillRate(1);
+
+        RateLimitPolicy bad = new RateLimitPolicy();
+        bad.setPath(CUSTOM_PATH);
+        bad.setDimensions(List.of(dim));
+
+        webTestClient.post().uri("/admin/policies")
+                .header("X-Admin-Token", TOKEN)
+                .bodyValue(bad)
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void upsertReplacesExistingPolicy() {
+        // Create capacity=5, then immediately replace with capacity=1
+        webTestClient.post().uri("/admin/policies")
+                .header("X-Admin-Token", TOKEN)
+                .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.USER, 5, 1))
+                .exchange()
+                .expectStatus().isOk();
+
+        webTestClient.post().uri("/admin/policies")
+                .header("X-Admin-Token", TOKEN)
+                .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.USER, 1, 1))
+                .exchange()
+                .expectStatus().isOk();
+
+        // Only 1 token available — first request allowed
+        webTestClient.get().uri(CUSTOM_PATH)
+                .header("X-User-Id", "probe-user")
+                .exchange()
+                .expectStatus().isNotFound();
+
+        // Bucket exhausted — second request blocked
+        webTestClient.get().uri(CUSTOM_PATH)
+                .header("X-User-Id", "probe-user")
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void globalDimensionBlocksAcrossAllUsers() {
+        // GLOBAL capacity=2 — shared by every caller regardless of identity
+        webTestClient.post().uri("/admin/policies")
+                .header("X-Admin-Token", TOKEN)
+                .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.GLOBAL, 2, 1))
+                .exchange()
+                .expectStatus().isOk();
+
+        webTestClient.get().uri(CUSTOM_PATH)
+                .header("X-User-Id", "user-alpha")
+                .exchange()
+                .expectStatus().isNotFound();
+
+        webTestClient.get().uri(CUSTOM_PATH)
+                .header("X-User-Id", "user-beta")
+                .exchange()
+                .expectStatus().isNotFound();
+
+        // Third request from a different user — GLOBAL bucket exhausted
+        webTestClient.get().uri(CUSTOM_PATH)
+                .header("X-User-Id", "user-gamma")
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 
     private RateLimitPolicy buildPolicy(String path, RateLimitDimension type,
