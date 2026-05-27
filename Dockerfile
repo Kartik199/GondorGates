@@ -5,7 +5,7 @@ RUN mvn dependency:go-offline -q
 COPY src ./src
 RUN mvn package -DskipTests -q
 
-FROM eclipse-temurin:21-jre-alpine
+FROM gcr.io/distroless/java21-debian12
 WORKDIR /app
 COPY --from=build /app/target/limiter-service-*.jar app.jar
 EXPOSE 8080

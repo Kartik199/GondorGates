@@ -193,31 +193,76 @@ gondorgates:
 
 ---
 
-## Integrating GondorGates in front of an existing API
+## Adding GondorGates to your stack
 
-GondorGates is a **Spring WebFlux application** that intercepts traffic via its `WebFilter`. There are two ways to integrate it:
+GondorGates runs as a sidecar container in front of your API. No code changes are required in your service.
 
-### Option A — Embed in your existing Spring WebFlux app (same JVM)
+### 5-minute setup
 
-If your backend is already a Spring WebFlux application, add GondorGates as a dependency and import the relevant beans (`GondorGatesWebFilter`, `PolicyResolver`, `RedisRateLimiter`, `GondorGatesProperties`) into your application context. The filter registers itself at `@Order(-100)` and will intercept all requests automatically.
+**1. Copy the sidecar template into your project**
 
-Steps:
-1. Copy the `com.gondorgates.limiter_service` packages into your project (or publish GondorGates as a library jar).
-2. Add the `gondorgates.policies` configuration block to your `application.yml`.
-3. Ensure a Redis instance is reachable and configured under `spring.data.redis`.
-4. Start your app — the filter is active.
+```bash
+curl -O https://raw.githubusercontent.com/Kartik199/GondorGates/main/docker-compose.sidecar-example.yml
+```
 
-### Option B — Run GondorGates as a reverse proxy / sidecar
+Or copy `docker-compose.sidecar-example.yml` from this repository.
 
-Run GondorGates as a standalone service and proxy traffic through it to your backend.
+**2. Point it at your service**
 
-1. Add a route controller or `WebClient`-based proxy handler to GondorGates that forwards allowed requests to `http://your-backend-host`.
-2. Deploy GondorGates between your load balancer and your backend.
-3. All traffic flows: `Client → GondorGates (rate check) → Backend`.
+Edit the one line marked `<--` in the file:
 
-This option keeps GondorGates fully decoupled from your backend's technology stack.
+```yaml
+- BACKEND_URL=http://your-api:3000   # your service name and port
+```
 
-**Sending the right headers from your client**
+**3. Start the sidecar**
+
+```bash
+docker compose -f docker-compose.sidecar-example.yml up -d
+```
+
+This starts two containers: GondorGates (port 8080) and Redis. Your API container is unchanged.
+
+**4. Route traffic through GondorGates**
+
+Point your clients or load balancer at port `8080` instead of your service directly:
+
+```
+Before:  Client → your-api:3000
+After:   Client → GondorGates:8080 → your-api:3000
+```
+
+That is the complete integration. GondorGates enforces rate limits on every request and proxies allowed ones to your service transparently.
+
+---
+
+### Configuring rate limits via environment variables
+
+Policies can be set entirely through environment variables — no file editing or rebuilding required. Spring Boot maps `GONDORGATES_POLICIES_{index}_*` to the policy list.
+
+```yaml
+environment:
+  # Policy 0 — strict login limit
+  - GONDORGATES_POLICIES_0_PATH=/api/login
+  - GONDORGATES_POLICIES_0_DIMENSIONS_0_TYPE=GLOBAL
+  - GONDORGATES_POLICIES_0_DIMENSIONS_0_CAPACITY=100
+  - GONDORGATES_POLICIES_0_DIMENSIONS_0_REFILLRATE=10
+  - GONDORGATES_POLICIES_0_DIMENSIONS_1_TYPE=USER
+  - GONDORGATES_POLICIES_0_DIMENSIONS_1_CAPACITY=5
+  - GONDORGATES_POLICIES_0_DIMENSIONS_1_REFILLRATE=1
+
+  # Policy 1 — relaxed orders limit
+  - GONDORGATES_POLICIES_1_PATH=/api/orders
+  - GONDORGATES_POLICIES_1_DIMENSIONS_0_TYPE=GLOBAL
+  - GONDORGATES_POLICIES_1_DIMENSIONS_0_CAPACITY=500
+  - GONDORGATES_POLICIES_1_DIMENSIONS_0_REFILLRATE=50
+```
+
+Any path not matched by a configured policy falls through to a built-in catch-all (`/`) with generous defaults (GLOBAL: 1000, USER: 100).
+
+---
+
+### Headers your clients should send
 
 ```http
 GET /api/orders HTTP/1.1
@@ -226,7 +271,18 @@ X-User-Id: user-123          ← drives the USER dimension
 X-API-Key: key-abc           ← drives the API_KEY dimension (takes priority over X-User-Id)
 ```
 
-If `X-User-Id` is absent, the `USER` dimension falls back to `"anonymous"`. If `X-API-Key` is absent, the `API_KEY` dimension falls back to `"anonymous"`. The `IP` dimension uses the request's remote address and is only evaluated if your policy declares an `IP` dimension — it is never inspected implicitly.
+If `X-User-Id` is absent, the `USER` dimension falls back to `"anonymous"`. If `X-API-Key` is absent, the `API_KEY` dimension falls back to `"anonymous"`. The `IP` dimension uses the request's remote address and is only evaluated if your policy declares an `IP` dimension.
+
+---
+
+### Option A — Embed in an existing Spring WebFlux app
+
+If your backend is already a Spring WebFlux application, GondorGates can run in the same JVM instead of as a sidecar.
+
+1. Copy the `com.gondorgates.limiter_service` packages into your project.
+2. Add the `gondorgates.policies` block to your `application.yml`.
+3. Ensure Redis is reachable under `spring.data.redis`.
+4. Start your app — the filter registers itself at `@Order(-100)` and intercepts all requests automatically.
 
 ---
 
@@ -255,8 +311,11 @@ Each bucket hash contains two fields: `tokens` (current count) and `last_refill`
 | 4 — Policy Engine | Done | YAML-driven policies, `PolicyResolver`, longest-match-wins |
 | 5 — Multi-Dimensional | Done | GLOBAL/USER/IP/API_KEY dimensions, hierarchical short-circuit |
 | 6 — Observability | Done | Micrometer + Prometheus metrics at `/actuator/prometheus` |
-| 7 — Grafana Dashboard | Planned | Real-time traffic visualisation |
-| 8 — Deployment | Planned | Dockerfile, full `docker compose` stack, k6 load testing |
+| 7 — Grafana Dashboard | Done | Real-time per-endpoint dashboard, auto-provisioned, anonymous access |
+| 8 — Deployment | Done | Dockerfile (distroless), full Docker stack, proxy handler, k6 load tests |
+| 8b — Sidecar UX | In Progress | GHCR image publish, sidecar compose template, env var policy config |
+| 9 — Admin REST API | Planned | Runtime policy changes without restart via `POST /admin/policies` |
+| 10 — Benchmark | Planned | Load test against a real API, documented P95 overhead numbers |
 
 ---
 
