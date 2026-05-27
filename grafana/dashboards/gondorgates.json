@@ -17,7 +17,7 @@
       "title": "Total Requests/s",
       "description": "Total request rate (allowed + denied) hitting GondorGates across all endpoints.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "gridPos": { "x": 0, "y": 0, "w": 5, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -42,7 +42,7 @@
       "title": "Block Rate (%)",
       "description": "Percentage of requests denied by the rate limiter across all endpoints.",
       "type": "stat",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "gridPos": { "x": 5, "y": 0, "w": 5, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -74,7 +74,7 @@
       "title": "Total Denied/s",
       "description": "Rate of requests being blocked by the rate limiter.",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "gridPos": { "x": 10, "y": 0, "w": 5, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -106,7 +106,7 @@
       "title": "Redis Error Rate",
       "description": "Rate of Redis connection failures. Any non-zero value means the rate limiter is in fail-open mode.",
       "type": "stat",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "gridPos": { "x": 15, "y": 0, "w": 5, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -127,6 +127,37 @@
         {
           "expr": "sum(rate(gondor_redis_errors_total[1m])) or vector(0)",
           "legendFormat": "errors/s",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
+      "title": "Active Dynamic Policies",
+      "description": "Number of runtime policy overrides set via the Admin REST API. Zero means only YAML defaults are active.",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "value" },
+      "targets": [
+        {
+          "expr": "gondor_admin_policies_active",
+          "legendFormat": "overrides",
           "refId": "A"
         }
       ]
