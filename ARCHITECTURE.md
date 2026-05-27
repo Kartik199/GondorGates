@@ -147,7 +147,7 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 ```
 
 **Delivered:**
-- Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; Alpine JRE runtime image
+- Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; distroless Java 21 runtime image (no shell, reduced attack surface, ~200MB final image)
 - `docker-compose.full.yml` — single `docker compose up -d --build` starts all five services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
 - `BackendProxyHandler` — transparent WebClient proxy activated by `BACKEND_URL` env var; strips hop-by-hop headers, forwards method/path/query/body, streams response back. When `BACKEND_URL` is blank, filter falls through to `chain.filter()` unchanged (embedded mode)
 - k6 load test (`k6/load-test.js`) — two scenarios run concurrently:
@@ -156,14 +156,45 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 - `.github/workflows/load-test.yml` — `workflow_dispatch` workflow: builds full stack, waits for health, runs k6 via `grafana/k6-action`, uploads `k6-results.json` as a 30-day artifact
 - `.env.example` — documents `GRAFANA_ADMIN_PASSWORD`; `.env` gitignored; anonymous access means admin password is not needed for day-to-day use
 
+### Epic 8b — Sidecar UX & Image Publishing ⏳
+
+**Objective**: Zero-friction adoption — any team adds GondorGates to their stack in under 5 minutes with no code changes.
+
+**Planned work:**
+- `publish.yml` GitHub Actions workflow — builds and pushes `ghcr.io/kartik199/gondorgates:latest` (+ short SHA tag) to GitHub Container Registry on every merge to main
+- `docker-compose.sidecar-example.yml` — minimum 2-container template (GondorGates + Redis) consumers copy into their project; `BACKEND_URL` is the only required change
+- Environment variable policy configuration — Spring Boot's `GONDORGATES_POLICIES_{n}_*` override pattern documented so users configure limits without mounting files or rebuilding
+- README "5-minute setup" section — complete end-to-end consumer guide
+
+---
+
+### Epic 9 — Admin REST API ⏳
+
+**Objective**: Change rate limit policies on a live instance without restarting.
+
+**Planned work:**
+- `GET /admin/policies` — list all active policies (YAML defaults merged with Redis overrides)
+- `POST /admin/policies` — create or update a policy, written to Redis, effective on the next request
+- `DELETE /admin/policies/{path}` — remove a runtime override; falls back to YAML default
+- `PolicyResolver` updated to check Redis before YAML on every request
+- Static `X-Admin-Token` header auth (token configured via env var)
+- New Grafana panel: active dynamic policy count
+
+---
+
+### Epic 10 — Benchmark ⏳
+
+**Objective**: Documented, reproducible proof of performance with real overhead numbers.
+
+**Planned work:**
+- Replace nginx demo-backend with a realistic API (multiple endpoints, variable response times)
+- k6 test measures GondorGates-in-path P95 latency vs direct call to quantify overhead
+- Real threshold values replace the `p(95)<500ms` placeholder in `load-test.js`
+- README and ARCHITECTURE updated with evidence-backed latency figures
+
 ---
 
 ## Post-MVP ideas
-
-These are intentionally deferred until all epics complete.
-
-### Runtime policy management
-Admin REST API (`POST /admin/policies`, `PUT /admin/policies/{path}`) to change limits without restart. Backed by a Redis-persisted policy store that takes precedence over YAML on startup.
 
 ### Abuse detection & auto-blocking
 Detect sustained violation patterns (e.g. 500 denied requests in 60 seconds from one IP) and temporarily blacklist the source. Implemented as a separate `AbuseDetector` component that watches the denied counter and writes to a Redis blocklist checked at the top of the filter.
@@ -176,4 +207,7 @@ Tenant-aware key namespacing (`rate_limit:{tenantId}:{dimension}:{id}:{path}`) s
 
 ### X-RateLimit-Reset header
 Epoch seconds when the current bucket fully refills. Requires passing `capacity` and `refillRate` back from the Lua return value or computing it from `retryAfter`.
+
+### GraalVM Native Image
+Compile to a native binary for sub-second startup and ~50MB image size. Suitable for serverless or auto-scaling-from-zero deployments.
 
