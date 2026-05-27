@@ -24,6 +24,7 @@ management:
 
 gondorgates:
   backend-url: ${BACKEND_URL:}
+  admin-token: ${GONDORGATES_ADMIN_TOKEN:}
   policies:
     # 1. Strict Policy for Authentication
     - path: /api/login
