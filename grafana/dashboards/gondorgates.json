@@ -11,12 +11,142 @@
   "id": null,
   "links": [],
   "panels": [
+
+    {
+      "id": 10,
+      "title": "Total Requests/s",
+      "description": "Total request rate (allowed + denied) hitting GondorGates across all endpoints.",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "value" },
+      "targets": [
+        {
+          "expr": "sum(rate(gondor_requests_total[1m]))",
+          "legendFormat": "req/s",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 2,
+      "title": "Block Rate (%)",
+      "description": "Percentage of requests denied by the rate limiter across all endpoints.",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(gondor_requests_total{outcome=\"denied\"}[1m])) / sum(rate(gondor_requests_total[1m]))",
+          "legendFormat": "block rate",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 11,
+      "title": "Total Denied/s",
+      "description": "Rate of requests being blocked by the rate limiter.",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "targets": [
+        {
+          "expr": "sum(rate(gondor_requests_total{outcome=\"denied\"}[1m]))",
+          "legendFormat": "denied/s",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "title": "Redis Error Rate",
+      "description": "Rate of Redis connection failures. Any non-zero value means the rate limiter is in fail-open mode.",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "targets": [
+        {
+          "expr": "sum(rate(gondor_redis_errors_total[1m])) or vector(0)",
+          "legendFormat": "errors/s",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 100,
+      "title": "Global Overview",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 4, "h": 1, "w": 24 },
+      "panels": []
+    },
+
     {
       "id": 1,
-      "title": "Request Rate (req/s)",
-      "description": "Allowed and denied requests per second across all endpoints.",
+      "title": "Request Rate (req/s) — All Endpoints",
+      "description": "Allowed (green) and denied (red) requests per second summed across all endpoints.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -48,43 +178,80 @@
         }
       ]
     },
+
     {
-      "id": 2,
-      "title": "Block Rate (%)",
-      "description": "Percentage of requests denied by the rate limiter.",
-      "type": "stat",
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "id": 101,
+      "title": "Per-Endpoint Breakdown",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 13, "h": 1, "w": 24 },
+      "panels": []
+    },
+
+    {
+      "id": 7,
+      "title": "Allowed Request Rate by Endpoint",
+      "description": "Allowed requests per second split by endpoint. Use the Endpoint filter above to focus on a specific path.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 20 }
-            ]
-          },
-          "mappings": []
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "100 * sum(rate(gondor_requests_total{outcome=\"denied\"}[1m])) / sum(rate(gondor_requests_total[1m]))",
-          "legendFormat": "block rate",
+          "expr": "sum by (path) (rate(gondor_requests_total{outcome=\"allowed\", path=~\"$path\"}[1m]))",
+          "legendFormat": "{{path}}",
           "refId": "A"
         }
       ]
     },
+
+    {
+      "id": 8,
+      "title": "Denied Request Rate by Endpoint",
+      "description": "Denied (rate-limited) requests per second split by endpoint. A spike here means a specific endpoint's bucket is being exhausted.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "sum by (path) (rate(gondor_requests_total{outcome=\"denied\", path=~\"$path\"}[1m]))",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 102,
+      "title": "Latency",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 22, "h": 1, "w": 24 },
+      "panels": []
+    },
+
     {
       "id": 3,
-      "title": "Filter Duration P95 (ms)",
-      "description": "95th percentile end-to-end time spent inside GondorGatesWebFilter per request.",
+      "title": "Filter Duration — Global (ms)",
+      "description": "P95 and P50 end-to-end time spent inside GondorGatesWebFilter across all endpoints.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 23, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -93,7 +260,7 @@
         },
         "overrides": []
       },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(gondor_filter_duration_seconds_bucket[1m])) by (le)) * 1000",
@@ -107,12 +274,13 @@
         }
       ]
     },
+
     {
-      "id": 4,
-      "title": "Redis Eval Duration P95 (ms)",
-      "description": "95th percentile round-trip time for the token bucket Lua script execution in Redis.",
+      "id": 9,
+      "title": "Filter Duration P95 by Endpoint (ms)",
+      "description": "P95 filter latency broken down per endpoint. Shows whether a specific path is slower than others — e.g. if a path has more dimensions to evaluate.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "gridPos": { "x": 12, "y": 23, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -121,7 +289,40 @@
         },
         "overrides": []
       },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(gondor_filter_duration_seconds_bucket{path=~\"$path\"}[1m])) by (le, path)) * 1000",
+          "legendFormat": "{{path}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 103,
+      "title": "Redis & Token Buckets",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 31, "h": 1, "w": 24 },
+      "panels": []
+    },
+
+    {
+      "id": 4,
+      "title": "Redis Eval Duration (ms)",
+      "description": "P95 and P50 round-trip time for the token bucket Lua script execution in Redis.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum(rate(gondor_redis_eval_duration_seconds_bucket[1m])) by (le)) * 1000",
@@ -135,12 +336,13 @@
         }
       ]
     },
+
     {
       "id": 5,
       "title": "Token Bucket Remaining",
-      "description": "Current remaining tokens per policy path and dimension. Drops toward zero as a bucket is exhausted.",
+      "description": "Current remaining tokens per dimension and endpoint. Drops toward zero as a bucket is exhausted; recovers as tokens refill.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 16, "w": 16, "h": 8 },
+      "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "fieldConfig": {
         "defaults": {
@@ -152,42 +354,13 @@
       "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "gondor_bucket_remaining",
+          "expr": "gondor_bucket_remaining{path=~\"$path\"}",
           "legendFormat": "{{dimension}} — {{path}}",
           "refId": "A"
         }
       ]
-    },
-    {
-      "id": 6,
-      "title": "Redis Error Rate",
-      "description": "Rate of Redis connection failures. Any non-zero value means the rate limiter is in fail-open mode.",
-      "type": "stat",
-      "gridPos": { "x": 16, "y": 16, "w": 8, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 0.001 }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
-      "targets": [
-        {
-          "expr": "sum(rate(gondor_redis_errors_total[1m])) or vector(0)",
-          "legendFormat": "errors/s",
-          "refId": "A"
-        }
-      ]
     }
+
   ],
   "refresh": "5s",
   "schemaVersion": 39,
@@ -203,6 +376,25 @@
         "query": "prometheus",
         "refresh": 1,
         "type": "datasource"
+      },
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "definition": "label_values(gondor_requests_total, path)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "path",
+        "options": [],
+        "query": {
+          "query": "label_values(gondor_requests_total, path)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "label": "Endpoint",
+        "type": "query"
       }
     ]
   },
@@ -211,5 +403,5 @@
   "timezone": "browser",
   "title": "GondorGates",
   "uid": "gondorgates-v1",
-  "version": 1
+  "version": 2
 }
