@@ -40,3 +40,7 @@ build/
 
 # Downloaded binaries (e.g. gitleaks fetched by CI scripts locally)
 gitleaks
+
+# k6 output files — generated artifacts, uploaded to CI as artifacts instead
+k6-results.json
+k6-summary.json
