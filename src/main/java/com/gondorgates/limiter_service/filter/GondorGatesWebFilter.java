@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
@@ -82,6 +83,8 @@ public class GondorGatesWebFilter implements WebFilter {
                     if (decision.allowed()) {
                         exchange.getResponse().beforeCommit(() -> {
                             exchange.getResponse().getHeaders()
+                                    .set("X-RateLimit-Limit", String.valueOf(decision.capacity()));
+                            exchange.getResponse().getHeaders()
                                     .set("X-RateLimit-Remaining", String.valueOf(decision.remainingTokens()));
                             return Mono.empty();
                         });
@@ -89,7 +92,10 @@ public class GondorGatesWebFilter implements WebFilter {
                                 ? backendProxyHandler.proxy(exchange)
                                 : chain.filter(exchange);
                     }
+                    long resetEpoch = Instant.now().getEpochSecond() + decision.retryAfter().toSeconds();
+                    exchange.getResponse().getHeaders().set("X-RateLimit-Limit", String.valueOf(decision.capacity()));
                     exchange.getResponse().getHeaders().set("X-RateLimit-Remaining", "0");
+                    exchange.getResponse().getHeaders().set("X-RateLimit-Reset", String.valueOf(resetEpoch));
                     exchange.getResponse().getHeaders()
                             .set("Retry-After", String.valueOf(decision.retryAfter().toSeconds()));
                     return handle429(exchange);
@@ -107,7 +113,7 @@ public class GondorGatesWebFilter implements WebFilter {
                 .takeUntil(decision -> !decision.allowed())
                 .reduce((acc, next) -> !next.allowed() ? next
                         : next.remainingTokens() < acc.remainingTokens() ? next : acc)
-                .defaultIfEmpty(new RateLimitDecision(true, Long.MAX_VALUE, Duration.ZERO));
+                .defaultIfEmpty(new RateLimitDecision(true, Long.MAX_VALUE, Duration.ZERO, 0));
     }
 
     private void recordBucketGauge(String path, String dimension, long remaining) {

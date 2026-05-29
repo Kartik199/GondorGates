@@ -17,13 +17,14 @@ local raw_state = redis.call("HMGET", key, "tokens", "last_refill")
 local tokens = tonumber(raw_state[1])
 local last_refill = tonumber(raw_state[2])
 
--- 2. Initialize if it's the first time this user hits this endpoint
+-- 2. Initialize if first request, otherwise lazily refill based on elapsed time
+local elapsed = 0
 if tokens == nil then
     tokens = capacity
     last_refill = now
 else
-    -- 3. Calculate Refill (The "Lazy" Refill logic we perfected in Java)
-    local elapsed = math.max(0, now - last_refill)
+    -- 3. Lazy refill: compute tokens earned since the last successful grant
+    elapsed = math.max(0, now - last_refill)
     local refill = math.floor((elapsed * refill_rate) / 1000)
     tokens = math.min(capacity, tokens + refill)
 end
@@ -35,11 +36,16 @@ local retry_after = 0
 if tokens >= requested then
     allowed = 1
     tokens = tokens - requested
-    last_refill = now -- Only update the refill anchor on success
+    last_refill = now
 else
-    -- Calculate how long until the user has enough tokens for the 'requested' amount
-    -- Formula: (needed_tokens * 1000) / refill_rate
-    retry_after = math.ceil((requested - tokens) * 1000 / refill_rate)
+    -- Compute how long until enough tokens are available, accounting for time
+    -- already accumulated toward the next token in the current refill window.
+    -- The naive formula (needed * 1000 / refill_rate) ignores partial elapsed
+    -- time and overstates the wait by up to one full token period.
+    local ms_per_token = 1000 / refill_rate
+    local elapsed_in_window = elapsed % ms_per_token
+    local ms_to_next_token = ms_per_token - elapsed_in_window
+    retry_after = math.ceil(ms_to_next_token + (requested - tokens - 1) * ms_per_token)
 end
 
 -- 5. Persist and Set Expiry (Improvement: Self-cleaning Redis)
