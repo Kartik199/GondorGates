@@ -121,7 +121,7 @@ Expected response:
 ./mvnw clean verify
 ```
 
-Requires a running Redis. All 6 integration tests must pass.
+Requires a running Redis. All integration tests must pass.
 
 ---
 
@@ -300,6 +300,31 @@ Each bucket hash contains two fields: `tokens` (current count) and `last_refill`
 
 ---
 
+## Performance
+
+Measured against a running full stack (`docker compose -f docker-compose.full.yml up -d`) using the k6 load test in `k6/load-test.js`. Two scenarios run back to back:
+
+**Correctness** — 20 VUs, 40 shared iterations, all targeting the same `X-User-Id` against `/api/login` (USER capacity = 5). Proves the atomic Lua script has no race condition under concurrent load.
+
+| Result | Value |
+|---|---|
+| Requests allowed | **5 out of 40** (exactly at capacity — no double-spend) |
+| Requests denied | 35 |
+
+**Throughput ramp** — ramps from 1 to 100 VUs over 2 minutes against `/api/orders`.
+
+| Metric | Value |
+|---|---|
+| P95 latency | **~12ms** |
+| P90 latency | ~10ms |
+| Average latency | ~6ms |
+| Throughput | ~409 req/s |
+| Rate limiting fires | Yes — 429s observed throughout ramp |
+
+Measured on local Docker (Apple Silicon). Results will vary with hardware and network; the k6 threshold is set at `p(95) < 50ms` to accommodate CI environments.
+
+---
+
 ## Roadmap
 
 | Epic | Status | Description |
@@ -313,9 +338,9 @@ Each bucket hash contains two fields: `tokens` (current count) and `last_refill`
 | 6 — Observability | Done | Micrometer + Prometheus metrics at `/actuator/prometheus` |
 | 7 — Grafana Dashboard | Done | Real-time per-endpoint dashboard, auto-provisioned, anonymous access |
 | 8 — Deployment | Done | Dockerfile (distroless), full Docker stack, proxy handler, k6 load tests |
-| 8b — Sidecar UX | In Progress | GHCR image publish, sidecar compose template, env var policy config |
-| 9 — Admin REST API | Planned | Runtime policy changes without restart via `POST /admin/policies` |
-| 10 — Benchmark | Planned | Load test against a real API, documented P95 overhead numbers |
+| 8b — Sidecar UX | Done | GHCR image publish, sidecar compose template, env var policy config |
+| 9 — Admin REST API | Done | Runtime policy changes without restart via `POST /admin/policies` |
+| 10 — Benchmark | Done | k6 load test against live stack — P95 ~12ms at 100 VUs, correctness verified |
 
 ---
 
