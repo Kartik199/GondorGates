@@ -21,7 +21,7 @@ It is not a service mesh, not a full API gateway, and not a quota-billing system
 | Property | How it is achieved |
 |---|---|
 | **Distributed correctness** | All token bucket state lives in Redis. A single atomic Lua script performs read → refill → decide → write in one round-trip. No application-level locking, no CAS retry loop at the Java layer. |
-| **Non-blocking I/O** | The application uses Project Reactor (`Mono`/`Flux`) operators exclusively. The calling thread is never parked waiting for Redis — it is released back to handle other connections while the Redis response is in flight. Netty is the embedded server provided by Spring Boot's auto-configuration; the application code makes no direct reference to Netty. |
+| **Non-blocking I/O** | The application uses Project Reactor (`Mono`/`Flux`) operators exclusively. The calling thread is never parked waiting for Redis — it is released back to handle other connections while the Redis response is in flight. |
 | **Horizontal scalability** | GondorGates application instances are stateless. Add more instances behind a load balancer; all share the same Redis state. |
 | **Fail-open resiliency** | If Redis is unreachable, requests are allowed through. Rate limiting is a protection mechanism, not a gating mechanism — API availability is the higher priority. |
 | **Configuration-driven** | Policies are declared in YAML and version-controlled alongside the code. Changing a policy currently requires a restart. Hot reload (applying changes without restart) is a planned feature. Zero hardcoded limits in source code. |
@@ -110,20 +110,20 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 
 ## Remaining roadmap
 
-### Epic 7 — Grafana Dashboard ⏳
+### Epic 7 — Grafana Dashboard ✅
 
 **Objective**: Provide a real-time operational view of traffic patterns.
 
-**Planned panels:**
+**Delivered panels:**
 - Requests/sec by endpoint (allowed vs. denied)
 - Top denied dimensions (which USER/IP is hitting limits)
 - Redis eval latency (P50 / P95 / P99)
 - Denied rate over time (spikes indicate abuse or misconfigured clients)
 
-**Planned work:**
-- Add Grafana and Prometheus services to `docker-compose.yml`
-- Configure Prometheus scrape job pointing at GondorGates `/actuator/prometheus`
-- Commit a `grafana/dashboard.json` that can be imported directly
+**Delivered:**
+- Grafana and Prometheus services added to `docker-compose.full.yml`
+- Prometheus scrape job configured against GondorGates `/actuator/prometheus`
+- Dashboard auto-provisioned via `grafana/provisioning/` — no manual import required
 
 ---
 
@@ -156,11 +156,11 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 - `.github/workflows/load-test.yml` — `workflow_dispatch` workflow: builds full stack, waits for health, runs k6 via `grafana/k6-action`, uploads `k6-results.json` as a 30-day artifact
 - `.env.example` — documents `GRAFANA_ADMIN_PASSWORD`; `.env` gitignored; anonymous access means admin password is not needed for day-to-day use
 
-### Epic 8b — Sidecar UX & Image Publishing ⏳
+### Epic 8b — Sidecar UX & Image Publishing ✅
 
 **Objective**: Zero-friction adoption — any team adds GondorGates to their stack in under 5 minutes with no code changes.
 
-**Planned work:**
+**Delivered:**
 - `publish.yml` GitHub Actions workflow — builds and pushes `ghcr.io/kartik199/gondorgates:latest` (+ short SHA tag) to GitHub Container Registry on every merge to main
 - `docker-compose.sidecar-example.yml` — minimum 2-container template (GondorGates + Redis) consumers copy into their project; `BACKEND_URL` is the only required change
 - Environment variable policy configuration — Spring Boot's `GONDORGATES_POLICIES_{n}_*` override pattern documented so users configure limits without mounting files or rebuilding
@@ -168,29 +168,30 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 
 ---
 
-### Epic 9 — Admin REST API ⏳
+### Epic 9 — Admin REST API ✅
 
 **Objective**: Change rate limit policies on a live instance without restarting.
 
-**Planned work:**
-- `GET /admin/policies` — list all active policies (YAML defaults merged with Redis overrides)
-- `POST /admin/policies` — create or update a policy, written to Redis, effective on the next request
-- `DELETE /admin/policies/{path}` — remove a runtime override; falls back to YAML default
-- `PolicyResolver` updated to check Redis before YAML on every request
-- Static `X-Admin-Token` header auth (token configured via env var)
-- New Grafana panel: active dynamic policy count
+**Delivered:**
+- `GET /admin/policies` — lists all active policies (YAML defaults merged with Redis overrides)
+- `POST /admin/policies` — creates or updates a policy, written to Redis, effective on the next request
+- `DELETE /admin/policies/{path}` — removes a runtime override; falls back to YAML default
+- `PolicyResolver` checks Redis overrides before YAML on every request (exact-match, zero performance cost on cache hit)
+- Static `X-Admin-Token` header auth — disabled by default (returns 503); enabled by setting `GONDORGATES_ADMIN_TOKEN` env var
+- `RedisPolicyStore` loads overrides from Redis at startup so policies survive restarts
 
 ---
 
-### Epic 10 — Benchmark ⏳
+### Epic 10 — Benchmark ✅
 
 **Objective**: Documented, reproducible proof of performance with real overhead numbers.
 
-**Planned work:**
-- Replace nginx demo-backend with a realistic API (multiple endpoints, variable response times)
-- k6 test measures GondorGates-in-path P95 latency vs direct call to quantify overhead
-- Real threshold values replace the `p(95)<500ms` placeholder in `load-test.js`
-- README and ARCHITECTURE updated with evidence-backed latency figures
+**Delivered:**
+- k6 load test fixed for k6 v2.0 compatibility: shared correctness user via `setup()`, `responseCallback` to exclude expected 429s from failure rate, Go-canonical header casing
+- Real threshold values: `p(95)<50ms` replaces the fictional `p(95)<500ms` placeholder
+- Measured results at 100 VUs on local Docker (Apple Silicon): P95 ~12ms, avg ~6ms, ~409 req/s
+- Correctness verified: exactly 5 requests allowed out of 40 concurrent against a capacity-5 USER bucket — no double-spend under load
+- README Performance section documents results and reproduction steps
 
 ---
 
