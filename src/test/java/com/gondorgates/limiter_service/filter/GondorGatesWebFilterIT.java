@@ -13,6 +13,13 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 @Import({RedisConfig.class, GondorGatesWebFilterIT.TestController.class})
@@ -101,6 +108,69 @@ public class GondorGatesWebFilterIT {
                 .expectStatus().isOk()
                 .expectHeader().valueEquals("X-RateLimit-Remaining", "8");
     }
+
+    // ── 4.2 Anonymous bucket isolation ────────────────────────────────────────
+
+    @Test
+    void anonymousRequestsShareASingleBudget() {
+        // Two callers with no X-User-Id both draw from the same "anonymous" bucket.
+        // /api/test USER capacity = 10. After 10 headerless requests the budget is
+        // exhausted — the 11th is denied regardless of which "client" sends it.
+        for (int i = 0; i < 10; i++) {
+            webTestClient.get().uri("/api/test").exchange().expectStatus().isOk();
+        }
+        // A completely separate request (different call site, same anonymous identity)
+        // must be denied — it shares the same bucket, not a fresh one.
+        webTestClient.get().uri("/api/test")
+                .exchange()
+                .expectStatus().isEqualTo(HttpStatus.TOO_MANY_REQUESTS)
+                .expectHeader().exists("Retry-After");
+    }
+
+    // ── 4.5 Concurrent stress — atomic correctness under load ─────────────────
+
+    @Test
+    void exactlyCapacityRequestsAllowedUnderConcurrentLoad() throws InterruptedException {
+        // /api/test USER dimension: capacity = 10.
+        // Fire 50 threads simultaneously against the same user bucket.
+        // The Lua script must be atomic — no double-spend, no under-grant.
+        String userId = "stress-" + UUID.randomUUID();
+        int total = 50;
+        int expectedAllowed = 10; // USER capacity for /api/test
+
+        AtomicInteger allowedCount = new AtomicInteger(0);
+        CountDownLatch ready = new CountDownLatch(total);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done  = new CountDownLatch(total);
+
+        for (int i = 0; i < total; i++) {
+            new Thread(() -> {
+                ready.countDown();
+                try {
+                    start.await();
+                    boolean ok = webTestClient.get().uri("/api/test")
+                            .header("X-User-Id", userId)
+                            .exchange()
+                            .returnResult(Void.class)
+                            .getStatus()
+                            .is2xxSuccessful();
+                    if (ok) allowedCount.incrementAndGet();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    done.countDown();
+                }
+            }).start();
+        }
+
+        ready.await();   // all threads standing by
+        start.countDown(); // fire
+        done.await(30, TimeUnit.SECONDS);
+
+        assertThat(allowedCount.get()).isEqualTo(expectedAllowed);
+    }
+
+    // ── Other ─────────────────────────────────────────────────────────────────
 
     @Test
     void actuatorPathBypassesRateLimiter() {
