@@ -54,12 +54,12 @@ public class RedisRateLimiter implements RateLimiter {
                     boolean allowed = ((Long) results.get(0)) == 1L;
                     long remaining = (Long) results.get(1);
                     long retryAfterMs = (Long) results.get(2);
-                    return new RateLimitDecision(allowed, remaining, Duration.ofMillis(retryAfterMs));
+                    return new RateLimitDecision(allowed, remaining, Duration.ofMillis(retryAfterMs), capacity);
                 })
                 .onErrorResume(e -> {
                     meterRegistry.counter("gondor.redis.errors.total").increment();
                     log.error("CRITICAL: Redis Limiter failed. Reason: {}", e.getMessage());
-                    return Mono.just(new RateLimitDecision(true, 0, Duration.ZERO));
+                    return Mono.just(new RateLimitDecision(true, 0, Duration.ZERO, capacity));
                 });
     }
 }

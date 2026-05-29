@@ -181,8 +181,10 @@ gondorgates:
 
 | Header | Present when | Value |
 |---|---|---|
+| `X-RateLimit-Limit` | Always | Capacity of the most restrictive dimension evaluated |
 | `X-RateLimit-Remaining` | Always | Minimum remaining tokens across all evaluated dimensions |
-| `Retry-After` | 429 response only | Seconds until the denying bucket has a token available |
+| `X-RateLimit-Reset` | 429 response only | Unix timestamp (seconds) when the next token will be available |
+| `Retry-After` | 429 response only | Seconds until the next token is available |
 
 ---
 
@@ -191,7 +193,7 @@ gondorgates:
 | Status | Meaning |
 |---|---|
 | `2xx` | Request allowed. Backend response is passed through. |
-| `429 Too Many Requests` | Rate limit exceeded. Body: `{"error": "Too Many Requests"}`. Headers: `Retry-After`. |
+| `429 Too Many Requests` | Rate limit exceeded. Body: `{"error": "Too Many Requests"}`. Headers: `Retry-After`, `X-RateLimit-Reset`. |
 
 ---
 

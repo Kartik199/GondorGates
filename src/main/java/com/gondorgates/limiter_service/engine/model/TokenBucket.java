@@ -44,7 +44,7 @@ public class TokenBucket {
             if (toppedUp < 1) {
                 // Calculate wait time until 1 token is available
                 long msToWait = Math.max(0, 1000 / refillRate);
-                return new RateLimitDecision(false, toppedUp, Duration.ofMillis(msToWait));
+                return new RateLimitDecision(false, toppedUp, Duration.ofMillis(msToWait), capacity);
             }
 
             nextTokens = toppedUp - 1;
@@ -54,6 +54,6 @@ public class TokenBucket {
 
         // Update the timestamp after a successful consumption
         lastRefillTimestamp.set(now);
-        return new RateLimitDecision(true, nextTokens, Duration.ZERO);
+        return new RateLimitDecision(true, nextTokens, Duration.ZERO, capacity);
     }
 }
