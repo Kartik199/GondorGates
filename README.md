@@ -2,12 +2,12 @@
 title: Home
 nav_order: 1
 permalink: /
-description: GondorGates — Distributed API rate-limiting gateway
+description: GondorGates — Horizontally scalable API rate-limiting gateway
 ---
 
 # GondorGates
 
-GondorGates is a distributed API rate-limiting gateway built with Spring WebFlux and Redis. It sits in front of your backend services and enforces configurable traffic limits per endpoint, per dimension (global, per-user, per-IP, per-API key) — atomically and without a single distributed lock.
+GondorGates is a horizontally scalable API rate-limiting gateway built with Spring WebFlux and Redis. It sits in front of your backend services and enforces configurable traffic limits per endpoint, per dimension (global, per-user, per-IP, per-API key) — atomically and without a single distributed lock.
 
 ---
 
@@ -169,6 +169,8 @@ gondorgates:
 | `IP` | Remote IP address | Block abusive IPs independent of auth headers |
 | `API_KEY` | Value of `X-API-Key` header, falls back to `"anonymous"` | Tier-based API key quotas |
 
+> **Anonymous fallback:** When `X-User-Id` or `X-API-Key` is absent, `USER` and `API_KEY` dimensions both fall back to the key `"anonymous"`. All unauthenticated callers share a single bucket — one abusive anonymous client can exhaust the quota and deny all others. If you need per-client isolation for unauthenticated traffic, use the `IP` dimension instead.
+
 **Path matching** uses longest-prefix-wins. `/api/orders/123` matches `/api/orders`, not `/`. The root `/` policy acts as the catch-all.
 
 **Evaluation order** follows YAML declaration order. Put `GLOBAL` first so a shared budget exhaustion short-circuits without charging per-user buckets.
@@ -197,7 +199,7 @@ gondorgates:
 
 GondorGates runs as a sidecar container in front of your API. No code changes are required in your service.
 
-### 5-minute setup
+### Quick start
 
 **1. Copy the sidecar template into your project**
 
@@ -258,7 +260,7 @@ environment:
   - GONDORGATES_POLICIES_1_DIMENSIONS_0_REFILLRATE=50
 ```
 
-Any path not matched by a configured policy falls through to a built-in catch-all (`/`) with generous defaults (GLOBAL: 1000, USER: 100).
+Any path not matched by a configured policy falls through to the `/` catch-all policy. The defaults in `application.yml` are GLOBAL: 1000 req / 100 per second, USER: 100 req / 10 per second. Override them by declaring a `/` entry in your `gondorgates.policies` config the same way you would any other path.
 
 ---
 
@@ -272,6 +274,25 @@ X-API-Key: key-abc           ← drives the API_KEY dimension (takes priority ov
 ```
 
 If `X-User-Id` is absent, the `USER` dimension falls back to `"anonymous"`. If `X-API-Key` is absent, the `API_KEY` dimension falls back to `"anonymous"`. The `IP` dimension uses the request's remote address and is only evaluated if your policy declares an `IP` dimension.
+
+---
+
+### Security considerations
+
+**GondorGates trusts `X-User-Id` and `X-API-Key` headers as-is.** It does not validate, sign, or verify them. Any client that can reach GondorGates can send an arbitrary value in these headers — including impersonating another user or bypassing their own per-user limit.
+
+This is intentional: GondorGates is designed to run *behind* your ingress, not in front of it. The expected production topology is:
+
+```
+Internet → Load balancer / API Gateway (strips & injects identity headers) → GondorGates → Backend
+```
+
+**Before deploying to production:**
+- Strip `X-User-Id` and `X-API-Key` from all inbound client requests at your ingress or load balancer.
+- Inject them only after authentication — from a validated JWT claim, session token, or mTLS certificate.
+- If you deploy GondorGates as a public-facing endpoint without this stripping, per-user rate limits offer no protection.
+
+The `anonymous` fallback (used when identity headers are absent) creates a **shared bucket** across all unauthenticated callers. One abusive anonymous client can exhaust the anonymous quota and deny all other unauthenticated users.
 
 ---
 
@@ -302,7 +323,12 @@ Each bucket hash contains two fields: `tokens` (current count) and `last_refill`
 
 ## Performance
 
-Measured against a running full stack (`docker compose -f docker-compose.full.yml up -d`) using the k6 load test in `k6/load-test.js`. Two scenarios run back to back:
+Measured against a running full stack using the k6 load test in `k6/load-test.js`. Two scenarios run back to back:
+
+```bash
+docker compose -f docker-compose.full.yml up -d
+BASE_URL=http://localhost:8080 k6 run k6/load-test.js
+```
 
 **Correctness** — 20 VUs, 40 shared iterations, all targeting the same `X-User-Id` against `/api/login` (USER capacity = 5). Proves the atomic Lua script has no race condition under concurrent load.
 
@@ -341,6 +367,16 @@ Measured on local Docker (Apple Silicon). Results will vary with hardware and ne
 | 8b — Sidecar UX | Done | GHCR image publish, sidecar compose template, env var policy config |
 | 9 — Admin REST API | Done | Runtime policy changes without restart via `POST /admin/policies` |
 | 10 — Benchmark | Done | k6 load test against live stack — P95 ~12ms at 100 VUs, correctness verified |
+
+---
+
+## Known limitations
+
+- **Single Redis instance** — Redis runs as a single node with no replication. A Redis restart causes fail-open (all rate limits suspended until Redis recovers and buckets rebuild from scratch). Redis Sentinel or Cluster is not implemented.
+- **Redis Cluster incompatible** — the key format (`rate_limit:{dimension}:{id}:{path}`) crosses hash slots arbitrarily. Running against Redis Cluster would produce `CROSSSLOT` errors from the Lua script.
+- **Header trust** — `X-User-Id` and `X-API-Key` are accepted as-is with no verification. Strip them at your ingress before production deployment. See [Security considerations](#security-considerations).
+- **Policy reload requires restart** — changes to `gondorgates.policies` in `application.yml` take effect only after a restart. For live changes, use the [Admin REST API](#admin-rest-api) (`POST /admin/policies`).
+- **No path-parameter awareness** — GondorGates matches on static path prefixes. `/api/users/123` and `/api/users/456` are treated identically and map to the same policy bucket.
 
 ---
 
