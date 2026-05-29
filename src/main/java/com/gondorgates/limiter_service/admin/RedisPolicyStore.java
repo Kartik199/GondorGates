@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
-public class RedisPolicyStore {
+public class RedisPolicyStore implements PolicyStore {
 
     private static final String KEY_PREFIX = "gondorgates:admin:policy:";
     private static final String INDEX_KEY  = "gondorgates:admin:paths";

@@ -3,11 +3,11 @@ package com.gondorgates.limiter_service.config;
 import com.gondorgates.limiter_service.policy.RateLimitPolicy;
 import jakarta.validation.Valid;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 import java.util.List;
 
-@Configuration
+@Component
 @ConfigurationProperties(prefix = "gondorgates")
 @Validated
 public class GondorGatesProperties {

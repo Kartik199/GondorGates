@@ -81,6 +81,8 @@ public class GondorGatesWebFilter implements WebFilter {
                             .increment();
 
                     if (decision.allowed()) {
+                        // beforeCommit runs just before headers are flushed — needed here because
+                        // the proxy handler commits the response and headers must be set before that.
                         exchange.getResponse().beforeCommit(() -> {
                             exchange.getResponse().getHeaders()
                                     .set("X-RateLimit-Limit", String.valueOf(decision.capacity()));
@@ -113,7 +115,7 @@ public class GondorGatesWebFilter implements WebFilter {
                 .takeUntil(decision -> !decision.allowed())
                 .reduce((acc, next) -> !next.allowed() ? next
                         : next.remainingTokens() < acc.remainingTokens() ? next : acc)
-                .defaultIfEmpty(new RateLimitDecision(true, Long.MAX_VALUE, Duration.ZERO, 0));
+                .defaultIfEmpty(new RateLimitDecision(true, RateLimitDecision.UNCONSTRAINED, Duration.ZERO, 0));
     }
 
     private void recordBucketGauge(String path, String dimension, long remaining) {

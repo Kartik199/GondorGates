@@ -10,5 +10,7 @@ import java.time.Duration;
  */
 public record RateLimitDecision(boolean allowed, long remainingTokens, Duration retryAfter, long capacity) {
 
+    /** Sentinel used when no policy dimension constrains the request (pass-through). */
+    public static final long UNCONSTRAINED = Long.MAX_VALUE;
 }
 

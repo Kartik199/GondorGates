@@ -34,6 +34,7 @@ Client
 |---|---|
 | `GondorGatesWebFilter` | Spring WebFlux `WebFilter` at `@Order(-100)`. Intercepts every request before any controller sees it. |
 | `PolicyResolver` | Matches incoming path to the longest-matching policy. Falls through to the catch-all `/` if no specific policy matches. |
+| `PolicyStore` | Interface for runtime policy store operations (`get`, `listAll`, `save`, `delete`). `RedisPolicyStore` is the production implementation; the interface decouples `PolicyResolver` and `AdminPolicyController` from the Redis backend. |
 | `ClientIdentityResolver` | Extracts identity for each dimension: `GLOBAL` → constant `"GLOBAL"`, `USER` → `X-User-Id` header, `IP` → remote address, `API_KEY` → `X-API-Key` header. |
 | `RedisRateLimiter` | Executes the Lua script against Redis via `ReactiveStringRedisTemplate`. Fail-open: if Redis is unreachable, the request is allowed. |
 | `token_bucket.lua` | Atomic server-side Lua script. Reads bucket state, lazily refills tokens based on elapsed time, makes a decision, writes back, sets TTL — all in one Redis round-trip. |

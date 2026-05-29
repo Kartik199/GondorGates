@@ -18,6 +18,8 @@ public class RedisRateLimiter implements RateLimiter {
 
     private static final Logger log = LoggerFactory.getLogger(RedisRateLimiter.class);
     private final ReactiveStringRedisTemplate redisTemplate;
+    // Spring Data Redis's RedisScript API does not support generics on the List element type,
+    // so the raw type suppression here is a framework limitation, not a design choice.
     @SuppressWarnings("rawtypes")
     private final RedisScript<List> script;
     private final MeterRegistry meterRegistry;
