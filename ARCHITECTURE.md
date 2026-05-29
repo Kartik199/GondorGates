@@ -124,6 +124,7 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 - Grafana and Prometheus services added to `docker-compose.full.yml`
 - Prometheus scrape job configured against GondorGates `/actuator/prometheus`
 - Dashboard auto-provisioned via `grafana/provisioning/` — no manual import required
+- Alert rule provisioned via `grafana/provisioning/alerting/gondor-alerts.yml` — fires a critical alert when `rate(gondor_redis_errors_total[1m]) > 0` (Redis fail-open triggered, all rate limits suspended)
 
 ---
 
@@ -179,6 +180,8 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 - `PolicyResolver` checks Redis overrides before YAML on every request (exact-match, zero performance cost on cache hit)
 - Static `X-Admin-Token` header auth — disabled by default (returns 503); enabled by setting `GONDORGATES_ADMIN_TOKEN` env var
 - `RedisPolicyStore` loads overrides from Redis at startup so policies survive restarts
+- `PolicyStore` interface extracted from `RedisPolicyStore` — `PolicyResolver` and `AdminPolicyController` depend on the interface, not the Redis implementation (DIP)
+- `POST /admin/policies` body validation via `@Valid` + JSR-380 constraints (`@NotBlank`, `@NotEmpty`, `@NotNull`, `@Positive`) — replaces manual `isValid()` check; invalid payloads return 400 with per-field constraint details
 
 ---
 
@@ -192,6 +195,22 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 - Measured results at 100 VUs on local Docker (Apple Silicon): P95 ~12ms, avg ~6ms, ~409 req/s
 - Correctness verified: exactly 5 requests allowed out of 40 concurrent against a capacity-5 USER bucket — no double-spend under load
 - README Performance section documents results and reproduction steps
+
+---
+
+## Code quality pass (post-epic)
+
+Applied after all epics were complete. No behaviour changes — correctness improvements and design tightening only.
+
+| Area | Change |
+|---|---|
+| DIP | `PolicyStore` interface extracted; `PolicyResolver` and `AdminPolicyController` depend on the interface, not `RedisPolicyStore` directly |
+| Logging | `System.out.println` in `PolicyResolver` replaced with SLF4J `log.info` — output now routed through the logging framework |
+| Validation | `@NotBlank`, `@NotEmpty`, `@NotNull`, `@Positive` constraints added to `RateLimitPolicy` and `DimensionPolicy`; `@Valid` on `AdminPolicyController` `@RequestBody` replaces manual `isValid()` |
+| Semantics | `@Configuration` on `GondorGatesProperties` replaced with `@Component` — the class is a bean, not a `@Bean`-producing configuration class |
+| Readability | `Long.MAX_VALUE` sentinel in `RateLimitDecision` replaced with named constant `UNCONSTRAINED`; `@SuppressWarnings("rawtypes")` in `RedisRateLimiter` annotated with explanation; `beforeCommit` pattern in `GondorGatesWebFilter` documented with a comment |
+| Build | macOS Netty DNS resolver dependency moved to a `<profile id="mac-dev">` activated by OS — no longer ships in the production Docker image |
+| Dependencies | `.github/dependabot.yml` added — weekly automated updates for Maven and GitHub Actions |
 
 ---
 

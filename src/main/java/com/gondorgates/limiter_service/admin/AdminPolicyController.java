@@ -1,8 +1,8 @@
 package com.gondorgates.limiter_service.admin;
 
 import com.gondorgates.limiter_service.config.GondorGatesProperties;
-import com.gondorgates.limiter_service.policy.DimensionPolicy;
 import com.gondorgates.limiter_service.policy.RateLimitPolicy;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -11,18 +11,17 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/admin")
 public class AdminPolicyController {
 
-    private final RedisPolicyStore policyStore;
+    private final PolicyStore policyStore;
     private final GondorGatesProperties properties;
     private final String adminToken;
 
-    public AdminPolicyController(RedisPolicyStore policyStore,
+    public AdminPolicyController(PolicyStore policyStore,
                                   GondorGatesProperties properties,
                                   @Value("${gondorgates.admin-token:}") String adminToken) {
         this.policyStore = policyStore;
@@ -43,13 +42,8 @@ public class AdminPolicyController {
     @PostMapping("/policies")
     public Mono<ResponseEntity<Object>> upsertPolicy(
             @RequestHeader(value = "X-Admin-Token", required = false) String token,
-            @RequestBody RateLimitPolicy policy) {
+            @Valid @RequestBody RateLimitPolicy policy) {
         if (!isAuthorized(token)) return unauthorized();
-        if (!isValid(policy)) {
-            return Mono.just(ResponseEntity.badRequest()
-                    .body(Map.of("error",
-                            "path and at least one dimension with positive capacity and refillRate are required")));
-        }
         return policyStore.save(policy)
                 .thenReturn(ResponseEntity.ok()
                         .<Object>body(Map.of("path", policy.getPath(), "status", "saved")));
@@ -72,14 +66,6 @@ public class AdminPolicyController {
 
     private boolean isAuthorized(String token) {
         return StringUtils.hasText(adminToken) && adminToken.equals(token);
-    }
-
-    private boolean isValid(RateLimitPolicy policy) {
-        if (!StringUtils.hasText(policy.getPath())) return false;
-        List<DimensionPolicy> dims = policy.getDimensions();
-        if (dims == null || dims.isEmpty()) return false;
-        return dims.stream().allMatch(
-                d -> d.getType() != null && d.getCapacity() > 0 && d.getRefillRate() > 0);
     }
 
     private Mono<ResponseEntity<Object>> unauthorized() {

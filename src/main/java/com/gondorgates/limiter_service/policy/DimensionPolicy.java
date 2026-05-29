@@ -1,8 +1,10 @@
 package com.gondorgates.limiter_service.policy;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 public class DimensionPolicy {
+    @NotNull(message = "dimension type must not be null")
     private RateLimitDimension type;
     @Positive(message = "capacity must be greater than zero")
     private int capacity;
