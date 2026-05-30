@@ -82,13 +82,13 @@ USER   (5 req / 1 s)
 
 ## Running locally
 
-### 1. Start Redis
+### 1. Start infrastructure
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.infra.yml up -d
 ```
 
-This starts a Redis 7.2 container on port `6379` with AOF persistence and a health check.
+This starts Redis 7.2 (port `6379`), Prometheus (port `9091`), and Grafana (port `3000`) with AOF persistence and health checks. The app itself runs on the host in the next step.
 
 ### 2. Start GondorGates
 
@@ -201,6 +201,14 @@ gondorgates:
 ## Adding GondorGates to your stack
 
 GondorGates runs as a sidecar container in front of your API. No code changes are required in your service.
+
+The image is published to GitHub Container Registry on every merge to `main`:
+
+```bash
+docker pull ghcr.io/kartik199/gondorgates:latest
+```
+
+Each build also produces an immutable short-SHA tag (e.g. `ghcr.io/kartik199/gondorgates:af8f619`) for reproducible deployments. SHA tags are listed under [Packages](https://github.com/Kartik199/GondorGates/pkgs/container/gondorgates).
 
 ### Quick start
 
@@ -329,7 +337,7 @@ Each bucket hash contains two fields: `tokens` (current count) and `last_refill`
 The load test in `k6/load-test.js` runs three scenarios back to back. The baseline scenario is specifically designed to isolate GondorGates' overhead from the underlying Spring WebFlux stack cost.
 
 ```bash
-docker compose -f docker-compose.full.yml up -d
+docker compose -f docker-compose.yml up -d
 BASE_URL=http://localhost:8080 k6 run k6/load-test.js
 ```
 

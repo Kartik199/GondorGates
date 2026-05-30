@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Start full stack
-        run: docker compose -f docker-compose.full.yml up -d --build
+        run: docker compose -f docker-compose.yml up -d --build
         env:
           GRAFANA_ADMIN_PASSWORD: ci-load-test
 
@@ -26,7 +26,7 @@ jobs:
             sleep 5
           done
           echo "GondorGates did not become healthy in time"
-          docker compose -f docker-compose.full.yml logs gondor-app
+          docker compose -f docker-compose.yml logs gondor-app
           exit 1
 
       - name: Run k6 load test
@@ -47,4 +47,4 @@ jobs:
 
       - name: Tear down stack
         if: always()
-        run: docker compose -f docker-compose.full.yml down --volumes
+        run: docker compose -f docker-compose.yml down --volumes
