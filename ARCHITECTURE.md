@@ -140,9 +140,7 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 ```
 Client
   ↓
-GondorGates (:8080)          ← rate limiting filter + optional proxy to backend
-  ↓
-Demo Backend (nginx :9090)   ← returns {"status":"ok"} for /api/login, /api/orders
+GondorGates (:8080)          ← rate limiting filter; runs in embedded mode (no backend proxy)
   ↓
 Redis (:6379)                ← token bucket state
 
@@ -151,9 +149,13 @@ Prometheus (:9091)           ← scrapes GondorGates /actuator/prometheus every 
 Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashboard
 ```
 
+Allowed requests return 200 from Spring actuator paths or 404 for unmatched routes — the rate-limit
+headers (`X-RateLimit-Remaining`, `Retry-After`) are the observable behaviour. For proxy mode,
+see `docker-compose.sidecar-example.yml`.
+
 **Delivered:**
 - Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; distroless Java 21 runtime image (no shell, reduced attack surface, ~200MB final image)
-- `docker-compose.yml` — single `docker compose up -d --build` starts all five services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
+- `docker-compose.yml` — single `docker compose up -d --build` starts four services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
 - `BackendProxyHandler` — transparent WebClient proxy activated by `BACKEND_URL` env var; strips hop-by-hop headers, forwards method/path/query/body, streams response back. When `BACKEND_URL` is blank, filter falls through to `chain.filter()` unchanged (embedded mode)
 - k6 load test (`k6/load-test.js`) — two scenarios run concurrently:
   - **Correctness**: 20 VUs share one user ID against `/api/login`; `gondor_allowed ≤ 5` threshold proves the Lua atomic eval has no double-spend race condition under concurrent load
