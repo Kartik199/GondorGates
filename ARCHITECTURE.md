@@ -125,7 +125,7 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 - Denied rate over time (spikes indicate abuse or misconfigured clients)
 
 **Delivered:**
-- Grafana and Prometheus services added to `docker-compose.full.yml`
+- Grafana and Prometheus services added to `docker-compose.yml`
 - Prometheus scrape job configured against GondorGates `/actuator/prometheus`
 - Dashboard auto-provisioned via `grafana/provisioning/` — no manual import required
 - Alert rule provisioned via `grafana/provisioning/alerting/gondor-alerts.yml` — fires a critical alert when `rate(gondor_redis_errors_total[1m]) > 0` (Redis fail-open triggered, all rate limits suspended)
@@ -153,7 +153,7 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 
 **Delivered:**
 - Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; distroless Java 21 runtime image (no shell, reduced attack surface, ~200MB final image)
-- `docker-compose.full.yml` — single `docker compose up -d --build` starts all five services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
+- `docker-compose.yml` — single `docker compose up -d --build` starts all five services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
 - `BackendProxyHandler` — transparent WebClient proxy activated by `BACKEND_URL` env var; strips hop-by-hop headers, forwards method/path/query/body, streams response back. When `BACKEND_URL` is blank, filter falls through to `chain.filter()` unchanged (embedded mode)
 - k6 load test (`k6/load-test.js`) — two scenarios run concurrently:
   - **Correctness**: 20 VUs share one user ID against `/api/login`; `gondor_allowed ≤ 5` threshold proves the Lua atomic eval has no double-spend race condition under concurrent load
