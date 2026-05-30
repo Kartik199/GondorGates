@@ -33,7 +33,7 @@ Each policy dimension maintains a Redis Hash with two fields:
 - `tokens` — current available tokens
 - `last_refill` — epoch milliseconds of the last successful grant
 
-On every request, the Lua script computes `floor(elapsed_ms × refillRate / 1000)` new tokens (capped at `capacity`), adds them, then attempts to consume one. Refill only advances on a successful grant — this "lazy refill" approach means no background job is ever needed, and bucket state stays self-consistent even across Redis restarts with AOF persistence.
+On every request, the Lua script computes `floor(elapsed_ms × refillRate / 1000)` new tokens (capped at `capacity`), adds them, then attempts to consume one. This is a **grant-gated clock** variant of the token bucket: `last_refill` advances only on a successful grant, not on every request. A denied request still applies the refill calculation (tokens is updated) but leaves `last_refill` frozen at the last grant time. The consequence is that each successive denied request computes `elapsed` from the same anchor — growing with every retry — so refill credit accumulates across the denial window rather than being anchored to each individual attempt. In practice this means a heavily rate-limited client recovers their budget slightly faster than the nominal rate would suggest; the effect is bounded by `capacity` and cannot exceed the configured ceiling, making it an acceptable tradeoff. The benefit is a single timestamp per bucket, no background job, and state that is self-consistent across Redis restarts with AOF persistence.
 
 ### Multi-dimensional evaluation
 
@@ -76,6 +76,10 @@ MULTI/EXEC in Redis does not support conditional logic. Lua gives us the ability
 ### YAML policy configuration over database-backed policies
 
 For v1, simplicity wins. YAML configuration is version-controlled, diff-able in PRs, and deployable via standard CI/CD. A database-backed policy store (with an admin API) is on the post-MVP roadmap but adds significant operational surface area that is not warranted until dynamic policy management is a real product requirement.
+
+### Trusted-header identity model
+
+`ClientIdentityResolver` reads `X-User-Id` and `X-API-Key` directly from the incoming request headers. GondorGates does not validate, sign, or verify these values — any caller that can reach the service can supply an arbitrary header and be rate-limited under that identity. This is an explicit design constraint, not an oversight: GondorGates is intended to run behind an authentication layer (an API gateway, ingress controller, or service mesh) that strips client-supplied identity headers and injects verified ones from a validated JWT claim, session token, or mTLS certificate. Deploying GondorGates as a public-facing endpoint without that stripping layer makes the USER and API_KEY dimensions trivially bypassable.
 
 ---
 
@@ -192,9 +196,11 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 **Delivered:**
 - k6 load test fixed for k6 v2.0 compatibility: shared correctness user via `setup()`, `responseCallback` to exclude expected 429s from failure rate, Go-canonical header casing
 - Real threshold values: `p(95)<50ms` replaces the fictional `p(95)<500ms` placeholder
-- Measured results at 100 VUs on local Docker (Apple Silicon): P95 ~12ms, avg ~6ms, ~409 req/s
+- Baseline scenario added: same 1→100 VU ramp and 100ms sleep as throughput, targeting `/actuator/info` — WebFilter bails out immediately for `/actuator` paths and `/actuator/info` makes no Redis calls (unlike `/actuator/health` which pings Redis via the health indicator); matching the VU profile and sleep pacing makes P95 values directly comparable
+- Throughput scenario runs after baseline (startTime offset) to keep measurements isolated
+- Measured results on local Docker (Apple Silicon): baseline P95 ~9ms, throughput P95 ~14ms — GondorGates overhead ~5ms per request (one Redis Lua round-trip for the atomic token bucket eval)
 - Correctness verified: exactly 5 requests allowed out of 40 concurrent against a capacity-5 USER bucket — no double-spend under load
-- README Performance section documents results and reproduction steps
+- README Performance section documents baseline methodology and overhead derivation
 
 ---
 
@@ -225,8 +231,14 @@ Alternative to token bucket for clients that want strictly "N requests per minut
 ### Multi-tenant isolation
 Tenant-aware key namespacing (`rate_limit:{tenantId}:{dimension}:{id}:{path}`) so the same GondorGates instance can serve multiple products with isolated budgets.
 
-### X-RateLimit-Reset header
-Epoch seconds when the current bucket fully refills. Requires passing `capacity` and `refillRate` back from the Lua return value or computing it from `retryAfter`.
+### Admin API authentication hardening
+The current `X-Admin-Token` static header has no expiry and no per-caller identity. Options: (a) mTLS — mutual certificate auth, no token required; (b) short-lived JWT issued by a separate identity service; (c) at minimum, a token rotation mechanism that takes effect without restart. The current implementation is correctly disabled-by-default (returns 503 without a token), which limits blast radius, but the static-token model is not appropriate for production use where the token controls all rate limit policy.
+
+### Redis high availability
+Redis is a single point of failure in v1. The application layer is stateless and horizontally scalable, but all rate-limit state lives in one Redis node — a restart or crash causes fail-open (all rate limits suspended) and cold-start empty buckets (counters reset). Fail-open is an intentional design choice: rate limiting is a protection mechanism, not a gating mechanism, so API availability is the higher priority during the outage window. The two standard HA paths are Redis Sentinel (auto-failover with a primary + replicas, transparent to clients via the Sentinel-aware connection string) and Redis Cluster (horizontal sharding across nodes, but requires key-slot-aware key design). The current key format `rate_limit:{dimension}:{id}:{path}` crosses hash slots arbitrarily; adopting Redis hash tags — e.g. `rate_limit:{user:kartik}:/api/orders` — would pin all keys for a given identity to one slot and make the Lua script Cluster-compatible. Both Sentinel and Cluster are out of scope for v1; fail-open covers the downtime window.
+
+### OpenAPI / Swagger documentation
+The admin REST API (`GET/POST/DELETE /admin/policies`) has no machine-readable spec. Adding `springdoc-openapi` would auto-generate a Swagger UI at `/swagger-ui.html` and an OpenAPI JSON at `/v3/api-docs`, making the API self-documenting and testable via the browser.
 
 ### GraalVM Native Image
 Compile to a native binary for sub-second startup and ~50MB image size. Suitable for serverless or auto-scaling-from-zero deployments.
