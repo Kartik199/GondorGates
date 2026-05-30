@@ -50,7 +50,15 @@ public class AdminPolicyControllerIT {
     @Test
     void rejectsRequestWithWrongToken() {
         webTestClient.get().uri("/admin/policies")
-                .header("X-Admin-Token", "wrong-token")
+                .header("Authorization", "Bearer wrong-token")
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    @Test
+    void rejectsRequestWithLegacyXAdminTokenHeader() {
+        webTestClient.get().uri("/admin/policies")
+                .header("X-Admin-Token", TOKEN)
                 .exchange()
                 .expectStatus().isUnauthorized();
     }
@@ -58,7 +66,7 @@ public class AdminPolicyControllerIT {
     @Test
     void listPoliciesReturnsBothSections() {
         webTestClient.get().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
@@ -70,7 +78,7 @@ public class AdminPolicyControllerIT {
     void customPolicyIsEnforcedAfterCreation() {
         // Create a tight policy — USER capacity 2 — on a path with no YAML entry
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.USER, 2, 1))
                 .exchange()
                 .expectStatus().isOk()
@@ -96,13 +104,13 @@ public class AdminPolicyControllerIT {
     void deleteRestoresFallbackBehaviour() {
         // Create a 1-token policy then immediately delete it
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.USER, 1, 1))
                 .exchange()
                 .expectStatus().isOk();
 
         webTestClient.delete().uri("/admin/policies" + CUSTOM_PATH)
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .exchange()
                 .expectStatus().isNoContent();
 
@@ -120,7 +128,7 @@ public class AdminPolicyControllerIT {
         bad.setDimensions(List.of());
 
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(bad)
                 .exchange()
                 .expectStatus().isBadRequest();
@@ -138,7 +146,7 @@ public class AdminPolicyControllerIT {
         bad.setDimensions(List.of(dim));
 
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(bad)
                 .exchange()
                 .expectStatus().isBadRequest();
@@ -148,13 +156,13 @@ public class AdminPolicyControllerIT {
     void upsertReplacesExistingPolicy() {
         // Create capacity=5, then immediately replace with capacity=1
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.USER, 5, 1))
                 .exchange()
                 .expectStatus().isOk();
 
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.USER, 1, 1))
                 .exchange()
                 .expectStatus().isOk();
@@ -176,7 +184,7 @@ public class AdminPolicyControllerIT {
     void globalDimensionBlocksAcrossAllUsers() {
         // GLOBAL capacity=2 — shared by every caller regardless of identity
         webTestClient.post().uri("/admin/policies")
-                .header("X-Admin-Token", TOKEN)
+                .header("Authorization", "Bearer " + TOKEN)
                 .bodyValue(buildPolicy(CUSTOM_PATH, RateLimitDimension.GLOBAL, 2, 1))
                 .exchange()
                 .expectStatus().isOk();
