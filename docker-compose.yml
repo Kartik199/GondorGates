@@ -50,7 +50,7 @@ services:
     ports:
       - "9091:9090"
     volumes:
-      - ./prometheus.full.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
       - gondor-network
     depends_on:
