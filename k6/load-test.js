@@ -5,9 +5,14 @@ import { Counter, Trend } from 'k6/metrics';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 
 // Custom metrics
-const allowedCount  = new Counter('gondor_allowed');
-const deniedCount   = new Counter('gondor_denied');
-const filterLatency = new Trend('gondor_filter_latency_ms', true);
+const allowedCount   = new Counter('gondor_allowed');
+const deniedCount    = new Counter('gondor_denied');
+const filterLatency  = new Trend('gondor_filter_latency_ms', true);
+// Baseline hits /actuator/info — the WebFilter short-circuits immediately for /actuator
+// paths (no policy resolution, no Redis call) and /actuator/info returns static metadata
+// with no Redis health indicator call. Same VU ramp and sleep as the throughput scenario
+// so the two P95 values are directly comparable. Delta = GondorGates overhead per request.
+const baselineLatency = new Trend('gondor_baseline_latency_ms', true);
 
 export const options = {
     scenarios: {
@@ -27,11 +32,35 @@ export const options = {
         },
 
         // ---------------------------------------------------------------
-        // Scenario 2 — Throughput ramp
+        // Scenario 2 — Baseline
+        // Same ramp profile and sleep as the throughput scenario, targeting
+        // /actuator/info. The WebFilter bails out at the first check for
+        // /actuator paths and /actuator/info makes no Redis calls — it
+        // returns static app metadata only. Matching the VU ramp and sleep
+        // pacing ensures the two P95 values are directly comparable:
+        //   GondorGates overhead = throughput P95 − baseline P95
+        // Run before throughput so Redis load doesn't contaminate results.
+        // ---------------------------------------------------------------
+        baseline: {
+            executor: 'ramping-vus',
+            startVUs: 1,
+            stages: [
+                { duration: '30s', target: 50  },
+                { duration: '60s', target: 100 },
+                { duration: '30s', target: 0   },
+            ],
+            exec: 'baselineTest',
+            tags: { scenario: 'baseline' },
+            startTime: '35s',
+        },
+
+        // ---------------------------------------------------------------
+        // Scenario 3 — Throughput ramp
         // Ramps from 1 to 100 VUs over 2 minutes against /api/orders.
         // Each VU uses a unique user-id so USER buckets don't interfere.
         // Records real P95 latency and confirms 429s fire (rate limiting
         // is active under GLOBAL budget pressure at high VU counts).
+        // Starts after baseline finishes to keep the measurements isolated.
         // ---------------------------------------------------------------
         throughput: {
             executor: 'ramping-vus',
@@ -43,7 +72,7 @@ export const options = {
             ],
             exec: 'throughputTest',
             tags: { scenario: 'throughput' },
-            startTime: '35s',
+            startTime: '160s',
         },
     },
 
@@ -53,8 +82,12 @@ export const options = {
         // here is a correctness bug, not a performance issue.
         'gondor_allowed{scenario:correctness}': ['count<=5'],
 
-        // Throughput: P95 filter latency based on measured baseline of ~13ms at 100 VUs.
-        // Ceiling set at 50ms — 4x the measured baseline — to absorb CI/resource variance.
+        // Baseline: /actuator/info with no rate-limiting or Redis logic should be fast.
+        // Ceiling of 10ms accounts for Docker/loopback overhead at peak VU count.
+        'gondor_baseline_latency_ms': ['p(95)<10'],
+
+        // Throughput: P95 filter latency (full path including Redis Lua eval).
+        // Ceiling set at 50ms — well above measured ~12ms — to absorb CI/resource variance.
         'gondor_filter_latency_ms{scenario:throughput}': ['p(95)<50'],
 
         // Rate limiting must actually fire under load — at least one 429 expected.
@@ -72,6 +105,15 @@ export const options = {
 // which would give each VU a different timestamp and therefore a different Redis bucket.
 export function setup() {
     return { correctnessUser: `correctness-probe-${Date.now()}` };
+}
+
+export function baselineTest() {
+    const res = http.get(`${BASE_URL}/actuator/info`, {
+        tags: { scenario: 'baseline' },
+    });
+    baselineLatency.add(res.timings.duration, { scenario: 'baseline' });
+    check(res, { 'baseline info 200': (r) => r.status === 200 });
+    sleep(0.1);
 }
 
 export function correctnessTest(data) {
