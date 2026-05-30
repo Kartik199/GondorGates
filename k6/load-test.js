@@ -121,12 +121,12 @@ export function correctnessTest(data) {
         headers: { 'X-User-Id': data.correctnessUser },
         tags: { scenario: 'correctness' },
         // Mark 429 as an expected status so it does not count toward http_req_failed.
-        responseCallback: http.expectedStatuses(200, 429),
+        responseCallback: http.expectedStatuses(200, 404, 429),
     });
 
     filterLatency.add(res.timings.duration, { scenario: 'correctness' });
 
-    if (res.status === 200) {
+    if (res.status !== 429) {
         allowedCount.add(1, { scenario: 'correctness' });
     } else if (res.status === 429) {
         deniedCount.add(1, { scenario: 'correctness' });
@@ -146,12 +146,12 @@ export function throughputTest(data) {
     const res = http.get(`${BASE_URL}/api/orders`, {
         headers: { 'X-User-Id': `vu-${__VU}` },
         tags: { scenario: 'throughput' },
-        responseCallback: http.expectedStatuses(200, 429),
+        responseCallback: http.expectedStatuses(200, 404, 429),
     });
 
     filterLatency.add(res.timings.duration, { scenario: 'throughput' });
 
-    if (res.status === 200) {
+    if (res.status !== 429) {
         allowedCount.add(1, { scenario: 'throughput' });
         check(res, {
             'allowed has X-RateLimit-Remaining': (r) =>

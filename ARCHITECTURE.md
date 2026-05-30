@@ -77,6 +77,8 @@ MULTI/EXEC in Redis does not support conditional logic. Lua gives us the ability
 
 For v1, simplicity wins. YAML configuration is version-controlled, diff-able in PRs, and deployable via standard CI/CD. A database-backed policy store (with an admin API) is on the post-MVP roadmap but adds significant operational surface area that is not warranted until dynamic policy management is a real product requirement.
 
+**Update (Epic 9):** A hybrid model was adopted. YAML remains the authoritative baseline — version-controlled, deployed with the image, always present as a fallback. Redis overlays runtime overrides on top: `PolicyResolver` checks Redis first on every request (exact-match lookup, zero extra cost on a cache hit), falling back to YAML if no override exists. This preserves the original decision's benefits (diff-able defaults, no schema migration) while adding live reconfiguration without restart via the admin REST API.
+
 ### Trusted-header identity model
 
 `ClientIdentityResolver` reads `X-User-Id` and `X-API-Key` directly from the incoming request headers. GondorGates does not validate, sign, or verify these values — any caller that can reach the service can supply an arbitrary header and be rate-limited under that identity. This is an explicit design constraint, not an oversight: GondorGates is intended to run behind an authentication layer (an API gateway, ingress controller, or service mesh) that strips client-supplied identity headers and injects verified ones from a validated JWT claim, session token, or mTLS certificate. Deploying GondorGates as a public-facing endpoint without that stripping layer makes the USER and API_KEY dimensions trivially bypassable.
@@ -140,9 +142,7 @@ Key bug fixed: `startsWith("/api/order")` falsely matched `/api/orders`. Correct
 ```
 Client
   ↓
-GondorGates (:8080)          ← rate limiting filter + optional proxy to backend
-  ↓
-Demo Backend (nginx :9090)   ← returns {"status":"ok"} for /api/login, /api/orders
+GondorGates (:8080)          ← rate limiting filter; runs in embedded mode (no backend proxy)
   ↓
 Redis (:6379)                ← token bucket state
 
@@ -151,9 +151,13 @@ Prometheus (:9091)           ← scrapes GondorGates /actuator/prometheus every 
 Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashboard
 ```
 
+Allowed requests return 200 from Spring actuator paths or 404 for unmatched routes — the rate-limit
+headers (`X-RateLimit-Remaining`, `Retry-After`) are the observable behaviour. For proxy mode,
+see `docker-compose.sidecar-example.yml`.
+
 **Delivered:**
 - Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; distroless Java 21 runtime image (no shell, reduced attack surface, ~200MB final image)
-- `docker-compose.yml` — single `docker compose up -d --build` starts all five services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
+- `docker-compose.yml` — single `docker compose up -d --build` starts four services with health-check dependency ordering (Redis → gondor-app → Prometheus → Grafana)
 - `BackendProxyHandler` — transparent WebClient proxy activated by `BACKEND_URL` env var; strips hop-by-hop headers, forwards method/path/query/body, streams response back. When `BACKEND_URL` is blank, filter falls through to `chain.filter()` unchanged (embedded mode)
 - k6 load test (`k6/load-test.js`) — two scenarios run concurrently:
   - **Correctness**: 20 VUs share one user ID against `/api/login`; `gondor_allowed ≤ 5` threshold proves the Lua atomic eval has no double-spend race condition under concurrent load
