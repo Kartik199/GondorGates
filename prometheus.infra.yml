@@ -6,4 +6,4 @@ scrape_configs:
   - job_name: gondorgates
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ['gondor-app:8080']
+      - targets: ['host.docker.internal:8080']
