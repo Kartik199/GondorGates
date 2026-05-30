@@ -215,10 +215,10 @@ Each build also produces an immutable short-SHA tag (e.g. `ghcr.io/kartik199/gon
 **1. Copy the sidecar template into your project**
 
 ```bash
-curl -O https://raw.githubusercontent.com/Kartik199/GondorGates/main/docker-compose.sidecar-example.yml
+curl -O https://raw.githubusercontent.com/Kartik199/GondorGates/main/docker-compose.sidecar.yml
 ```
 
-Or copy `docker-compose.sidecar-example.yml` from this repository.
+Or copy `docker-compose.sidecar.yml` from this repository.
 
 **2. Point it at your service**
 
@@ -231,7 +231,7 @@ Edit the one line marked `<--` in the file:
 **3. Start the sidecar**
 
 ```bash
-docker compose -f docker-compose.sidecar-example.yml up -d
+docker compose -f docker-compose.sidecar.yml up -d
 ```
 
 This starts two containers: GondorGates (port 8080) and Redis. Your API container is unchanged.
@@ -311,7 +311,7 @@ The `anonymous` fallback (used when identity headers are absent) creates a **sha
 
 If your backend is already a Spring WebFlux application, GondorGates can run in the same JVM instead of as a sidecar.
 
-1. Copy the `com.gondorgates.limiter_service` packages into your project.
+1. Copy the `com.gondorgates.limiter` packages into your project.
 2. Add the `gondorgates.policies` block to your `application.yml`.
 3. Ensure Redis is reachable under `spring.data.redis`.
 4. Start your app — the filter registers itself at `@Order(-100)` and intercepts all requests automatically.

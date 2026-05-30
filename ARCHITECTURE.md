@@ -153,7 +153,7 @@ Grafana (:3000)              ← anonymous viewer access, auto-provisioned dashb
 
 Allowed requests return 200 from Spring actuator paths or 404 for unmatched routes — the rate-limit
 headers (`X-RateLimit-Remaining`, `Retry-After`) are the observable behaviour. For proxy mode,
-see `docker-compose.sidecar-example.yml`.
+see `docker-compose.sidecar.yml`.
 
 **Delivered:**
 - Multi-stage `Dockerfile` — Maven build layer cached separately from app layer; distroless Java 21 runtime image (no shell, reduced attack surface, ~200MB final image)
@@ -171,7 +171,7 @@ see `docker-compose.sidecar-example.yml`.
 
 **Delivered:**
 - `publish.yml` GitHub Actions workflow — builds and pushes `ghcr.io/kartik199/gondorgates:latest` (+ short SHA tag) to GitHub Container Registry on every merge to main
-- `docker-compose.sidecar-example.yml` — minimum 2-container template (GondorGates + Redis) consumers copy into their project; `BACKEND_URL` is the only required change
+- `docker-compose.sidecar.yml` — minimum 2-container template (GondorGates + Redis) consumers copy into their project; `BACKEND_URL` is the only required change
 - Environment variable policy configuration — Spring Boot's `GONDORGATES_POLICIES_{n}_*` override pattern documented so users configure limits without mounting files or rebuilding
 - README "5-minute setup" section — complete end-to-end consumer guide
 

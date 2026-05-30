@@ -11,9 +11,9 @@
     </parent>
 
     <groupId>com.gondorgates</groupId>
-    <artifactId>limiter-service</artifactId>
+    <artifactId>gondorgates</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>limiter-service</name>
+    <name>gondorgates</name>
     <description>High-performance distributed rate limiter engine</description>
 
     <properties>

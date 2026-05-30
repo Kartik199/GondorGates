@@ -7,6 +7,6 @@ RUN mvn package -DskipTests -q
 
 FROM gcr.io/distroless/java21-debian12
 WORKDIR /app
-COPY --from=build /app/target/limiter-service-*.jar app.jar
+COPY --from=build /app/target/gondorgates-*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
