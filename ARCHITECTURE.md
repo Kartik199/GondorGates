@@ -77,6 +77,8 @@ MULTI/EXEC in Redis does not support conditional logic. Lua gives us the ability
 
 For v1, simplicity wins. YAML configuration is version-controlled, diff-able in PRs, and deployable via standard CI/CD. A database-backed policy store (with an admin API) is on the post-MVP roadmap but adds significant operational surface area that is not warranted until dynamic policy management is a real product requirement.
 
+**Update (Epic 9):** A hybrid model was adopted. YAML remains the authoritative baseline — version-controlled, deployed with the image, always present as a fallback. Redis overlays runtime overrides on top: `PolicyResolver` checks Redis first on every request (exact-match lookup, zero extra cost on a cache hit), falling back to YAML if no override exists. This preserves the original decision's benefits (diff-able defaults, no schema migration) while adding live reconfiguration without restart via the admin REST API.
+
 ### Trusted-header identity model
 
 `ClientIdentityResolver` reads `X-User-Id` and `X-API-Key` directly from the incoming request headers. GondorGates does not validate, sign, or verify these values — any caller that can reach the service can supply an arbitrary header and be rate-limited under that identity. This is an explicit design constraint, not an oversight: GondorGates is intended to run behind an authentication layer (an API gateway, ingress controller, or service mesh) that strips client-supplied identity headers and injects verified ones from a validated JWT claim, session token, or mTLS certificate. Deploying GondorGates as a public-facing endpoint without that stripping layer makes the USER and API_KEY dimensions trivially bypassable.
