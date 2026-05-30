@@ -5,22 +5,14 @@ services:
     ports:
       - "8080:8080"
     environment:
+      -
       - SPRING_DATA_REDIS_HOST=gondor-redis
       - SPRING_DATA_REDIS_PORT=6379
-      - BACKEND_URL=http://demo-backend:9090
     networks:
       - gondor-network
     depends_on:
       gondor-redis:
         condition: service_healthy
-
-  demo-backend:
-    image: nginx:alpine
-    container_name: demo-backend
-    volumes:
-      - ./demo-backend.conf:/etc/nginx/conf.d/default.conf:ro
-    networks:
-      - gondor-network
 
   gondor-redis:
     image: redis:7.2-alpine
