@@ -13,12 +13,6 @@ services:
     depends_on:
       gondor-redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
 
   demo-backend:
     image: nginx:alpine
