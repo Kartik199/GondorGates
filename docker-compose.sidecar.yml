@@ -1,0 +1,60 @@
+# GondorGates Sidecar — Minimal Template
+#
+# Drop this into your project and update the two lines marked with <-- below.
+# GondorGates will sit in front of your API and enforce rate limits.
+# All traffic enters on port 8080; allowed requests are forwarded to your service.
+#
+# Usage:
+#   docker compose -f docker-compose.sidecar.yml up -d
+#
+# Your clients should then call:
+#   http://localhost:8080/your/path   (instead of your service directly)
+#
+# Headers your clients should send:
+#   X-User-Id: <user-id>     drives per-user rate limiting
+#   X-API-Key: <key>         drives per-API-key rate limiting (takes priority over X-User-Id)
+
+services:
+  gondorgates:
+    image: ghcr.io/kartik199/gondorgates:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATA_REDIS_HOST=gondor-redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - BACKEND_URL=http://your-api:3000        # <-- your service name and port
+
+      # Default policies apply to all paths via the catch-all (/):
+      #   GLOBAL: 1000 req / 100 tokens per second
+      #   USER:   100  req / 10  tokens per second per user
+      #
+      # Override specific policies without editing any files:
+      # (index 0 = first policy, index 1 = second, etc.)
+      #
+      # Example — strict login limit: 5 requests per user, 1 token/s refill
+      # - GONDORGATES_POLICIES_0_PATH=/api/login
+      # - GONDORGATES_POLICIES_0_DIMENSIONS_0_TYPE=GLOBAL
+      # - GONDORGATES_POLICIES_0_DIMENSIONS_0_CAPACITY=100
+      # - GONDORGATES_POLICIES_0_DIMENSIONS_0_REFILLRATE=10
+      # - GONDORGATES_POLICIES_0_DIMENSIONS_1_TYPE=USER
+      # - GONDORGATES_POLICIES_0_DIMENSIONS_1_CAPACITY=5
+      # - GONDORGATES_POLICIES_0_DIMENSIONS_1_REFILLRATE=1
+    depends_on:
+      gondor-redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gondor-redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", ""]
+    volumes:
+      - gondor_rate_limit_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  gondor_rate_limit_data:

@@ -70,5 +70,5 @@ jobs:
         if: success()
         with:
           name: gondorgates-jar
-          path: target/limiter-service-*.jar
+          path: target/gondorgates-*.jar
           retention-days: 3
