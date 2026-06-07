@@ -1,7 +1,7 @@
 title: GondorGates
 description: Distributed API rate-limiting gateway — reactive, atomic, multi-dimensional.
 
-remote_theme: just-the-docs/just-the-docs@v0.10.0
+theme: just-the-docs
 
 url: "https://kartik199.github.io"
 baseurl: "/GondorGates"
@@ -30,4 +30,3 @@ gh_edit_view_mode: "tree"
 
 plugins:
   - jekyll-seo-tag
-  - jekyll-remote-theme
