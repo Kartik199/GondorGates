@@ -1,3 +1,9 @@
+---
+title: Architecture
+nav_order: 3
+description: Technical design, architectural decisions, and engineering history
+---
+
 # GondorGates — Architecture
 
 ## What GondorGates is

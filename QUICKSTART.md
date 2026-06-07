@@ -1,3 +1,9 @@
+---
+title: Quick Start
+nav_order: 2
+description: Stand up GondorGates, hit the limits, watch Grafana, and change policies live
+---
+
 # GondorGates — Quick Start
 
 This guide walks you from zero to a live rate-limited API in under 10 minutes: stand up a sample backend, protect it with GondorGates, hit the limits, watch Grafana light up, and change a policy live without restarting anything.

@@ -27,6 +27,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Verify Jekyll frontmatter
+        run: |
+          missing=0
+          for f in README.md QUICKSTART.md ARCHITECTURE.md; do
+            if ! head -1 "$f" | grep -q '^---'; then
+              echo "ERROR: $f is missing Jekyll frontmatter"
+              missing=1
+            fi
+          done
+          [ $missing -eq 0 ] || exit 1
+
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v6

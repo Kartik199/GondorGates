@@ -1,3 +1,10 @@
+---
+title: Home
+nav_order: 1
+permalink: /
+description: GondorGates — Horizontally scalable API rate-limiting gateway
+---
+
 # GondorGates
 
 > Horizontally scalable API rate-limiting gateway — atomic, reactive, zero-lock.
