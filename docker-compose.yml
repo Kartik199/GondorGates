@@ -48,8 +48,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # WARNING: Anonymous viewer access is enabled below for local demo convenience.
-  # Anyone who can reach port 3000 can view all dashboards, including per-user bucket state.
   # Before deploying to any non-local environment: set GF_AUTH_ANONYMOUS_ENABLED=false
   # and set GRAFANA_ADMIN_PASSWORD to a strong value in your .env file.
   gondor-grafana:
