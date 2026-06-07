@@ -30,4 +30,3 @@ gh_edit_view_mode: "tree"
 
 plugins:
   - jekyll-remote-theme
-  - jekyll-seo-tag
