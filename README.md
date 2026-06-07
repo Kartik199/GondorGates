@@ -7,151 +7,130 @@ description: GondorGates — Horizontally scalable API rate-limiting gateway
 
 # GondorGates
 
-GondorGates is a horizontally scalable API rate-limiting gateway built with Spring WebFlux and Redis. It sits in front of your backend services and enforces configurable traffic limits per endpoint, per dimension (global, per-user, per-IP, per-API key) — atomically and without a single distributed lock.
+> Horizontally scalable API rate-limiting gateway — atomic, reactive, zero-lock.
+
+GondorGates sits in front of your backend services and enforces configurable traffic limits per endpoint, per caller dimension (global, per-user, per-IP, per-API key). Every decision is made by a single atomic Redis Lua script in one round-trip. No distributed locks, no application-level CAS loops, no background jobs.
+
+Built with **Spring Boot 3.4 / WebFlux** and **Redis 7**.
 
 ---
 
-## What it does
-
-Every request that passes through GondorGates is evaluated against a policy. Policies are declared in YAML, resolved by path, and evaluated across one or more **dimensions** in sequence. Each dimension maintains an independent token bucket in Redis, updated by an atomic Lua script. The first dimension that denies a request short-circuits the chain and returns a `429 Too Many Requests` — no further Redis calls are made.
+## How it works
 
 ```
-Client
-  └─▶ GondorGates (Spring WebFlux WebFilter)
-          └─▶ PolicyResolver          ← match path to policy
-                  └─▶ GLOBAL bucket   ← check shared budget
-                          └─▶ USER bucket   ← check per-user budget
-                                  └─▶ Backend API (if allowed)
+Client Request
+  └─▶ GondorGatesWebFilter   (Spring WebFlux @Order -100)
+          └─▶ PolicyResolver  (Redis override → YAML longest-prefix)
+                  └─▶ Dimension 1: GLOBAL bucket  (atomic Lua eval)
+                          └─▶ Dimension 2: USER bucket  (atomic Lua eval)
+                                  └─▶ Backend  (proxy or chain.filter)
 ```
+
+Each request passes through one WebFlux filter. The filter resolves the matching policy, then evaluates each declared dimension in order via a single atomic Lua script per dimension. The first denial short-circuits — no further Redis calls are made and no further buckets are charged.
 
 ---
 
-## Architecture
+## Features
 
-### Core components
-
-| Component | Role |
-|---|---|
-| `GondorGatesWebFilter` | Spring WebFlux `WebFilter` at `@Order(-100)`. Intercepts every request before any controller sees it. |
-| `PolicyResolver` | Matches incoming path to the longest-matching policy. Falls through to the catch-all `/` if no specific policy matches. |
-| `PolicyStore` | Interface for runtime policy store operations (`get`, `listAll`, `save`, `delete`). `RedisPolicyStore` is the production implementation; the interface decouples `PolicyResolver` and `AdminPolicyController` from the Redis backend. |
-| `ClientIdentityResolver` | Extracts identity for each dimension: `GLOBAL` → constant `"GLOBAL"`, `USER` → `X-User-Id` header, `IP` → remote address, `API_KEY` → `X-API-Key` header. |
-| `RedisRateLimiter` | Executes the Lua script against Redis via `ReactiveStringRedisTemplate`. Fail-open: if Redis is unreachable, the request is allowed. |
-| `token_bucket.lua` | Atomic server-side Lua script. Reads bucket state, lazily refills tokens based on elapsed time, makes a decision, writes back, sets TTL — all in one Redis round-trip. |
-| `RateLimitKeyUtils` | Builds Redis keys in the format `rate_limit:{dimension}:{id}:{path}`, e.g. `rate_limit:user:kartik:/api/orders`. |
-
-### Architectural Decisions
-
-####  Redis + Lua
-A naive GET-then-SET approach races under concurrent load — two threads can both read `tokens=1`, both grant the request, and both write `tokens=0`, effectively allowing a double-spend. The Lua script runs atomically inside Redis, making the entire read-refill-decide-write sequence linearizable. No locks, no CAS retries at the application layer.
-
-#### WebFlux
-
-GondorGates is designed to sit on the hot path of every API request. Spring MVC would block a thread per request waiting on Redis. Spring WebFlux uses Reactor operators (`Mono`/`Flux`) and non-blocking I/O — the calling thread is released back to handle other connections while waiting for Redis to respond. Netty is the embedded server provided by Spring Boot's auto-configuration; the application code makes no direct reference to Netty.
-
-#### Token Bucket algorithm
-
-Each bucket tracks two values in a Redis Hash: `tokens` (current count) and `last_refill` (epoch milliseconds of last successful grant). On every request:
-
-1. Compute elapsed time since `last_refill`.
-2. Add `floor(elapsed_ms × refillRate / 1000)` tokens, capped at `capacity`.
-3. If `tokens >= 1`, decrement and allow. Otherwise deny and return `retry_after_ms`.
-
-This is a **grant-gated clock** variant of the token bucket: `last_refill` advances only on a successful grant, not on every request. The practical consequence is that repeated denied requests each see a larger `elapsed` window (measured from the last grant, not the last attempt), so refill credit accumulates across retries rather than being reset on each one. This means a heavily rate-limited client recovers their budget slightly faster than the nominal rate would suggest — but the recovery is bounded by `capacity`, so it cannot exceed the configured ceiling. The tradeoff is a deliberate design choice: a single timestamp per bucket (no separate "last-seen" field), no background refill job, and self-consistent state across Redis restarts via AOF persistence.
-
-#### Multi-dimensional evaluation
-
-Dimensions are evaluated in the order they appear in the YAML. The first denial short-circuits. Among allowed decisions, the response exposes the **minimum remaining tokens** across all evaluated dimensions — the most conservative signal to the caller.
-
-```
-GLOBAL (100 req / 10 s)
-  ↓ allowed (remaining: 73)
-USER   (5 req / 1 s)
-  ↓ denied  → 429, Retry-After: 800ms
-```
+- **Atomic correctness** — a Lua script performs read → refill → decide → write in one Redis round-trip. Exactly the configured number of requests are allowed under concurrent load; no double-spend.
+- **Non-blocking I/O** — built on Project Reactor (`Mono`/`Flux`). Threads are never parked waiting on Redis.
+- **Multi-dimensional** — enforce independent budgets per endpoint: `GLOBAL`, `USER` (`X-User-Id`), `IP`, `API_KEY` (`X-API-Key`).
+- **Two-tier policy config** — YAML declares the baseline; the Admin REST API overlays live overrides without restart.
+- **Fail-open** — if Redis is unreachable, requests are allowed through. Rate limiting is a protection mechanism, not a gate.
+- **Sidecar-ready** — ships as a distroless Docker image on GHCR. Drop in front of any HTTP service with two lines of config.
+- **Observability built-in** — Micrometer metrics at `/actuator/prometheus`, auto-provisioned Grafana dashboard and alert rule included.
 
 ---
 
 ## Prerequisites
 
-- Java 21+
-- Maven (or use the included `./mvnw` wrapper)
-- Docker (for Redis)
+| Tool | Version |
+|---|---|
+| Java | 21+ |
+| Docker | Any recent version |
+| Maven | Included via `./mvnw` wrapper |
 
 ---
 
-## Running locally
+## Quick start
 
-### 1. Start infrastructure
+**1. Start Redis, Prometheus, and Grafana**
 
 ```bash
 docker compose -f docker-compose.infra.yml up -d
 ```
 
-This starts Redis 7.2 (port `6379`), Prometheus (port `9091`), and Grafana (port `3000`) with AOF persistence and health checks. The app itself runs on the host in the next step.
-
-### 2. Start GondorGates
+**2. Start GondorGates on the host**
 
 ```bash
+# Standalone — returns 404 for non-actuator paths, rate-limit headers are still applied
 ./mvnw spring-boot:run
+
+# With a backend — all allowed requests are proxied
+BACKEND_URL=http://localhost:5000 ./mvnw spring-boot:run
 ```
 
-The server starts on port `8080`.
-
-### 3. Verify it is up
+**3. Verify it is running**
 
 ```bash
 curl http://localhost:8080/actuator/health
 ```
 
-Expected response:
-
-```json
-{
-  "status": "UP",
-  "components": {
-    "redis": { "status": "UP" },
-    ...
-  }
-}
-```
-
-### 4. Run the test suite
+**4. Send a rate-limited request**
 
 ```bash
-./mvnw clean verify
+for i in $(seq 1 7); do
+  echo -n "Request $i → "
+  curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+    http://localhost:8080/api/login -H "X-User-Id: alice"
+done
 ```
 
-Requires a running Redis. All integration tests must pass.
+The first 5 requests return `HTTP 200`. Request 6 onward returns `HTTP 429` — the default `/api/login` USER policy has `capacity: 5`.
+
+For a full end-to-end walkthrough (sample backend, Grafana, live policy changes), see **[QUICKSTART.md](QUICKSTART.md)**.
+
+---
+
+## Adding GondorGates to your stack
+
+The image is published to GitHub Container Registry on every merge to `main`:
+
+```bash
+docker pull ghcr.io/kartik199/gondorgates:latest
+```
+
+Copy `docker-compose.sidecar.yml` from this repository and set one variable:
+
+```yaml
+- BACKEND_URL=http://your-api:3000   # your service name and port
+```
+
+```bash
+docker compose -f docker-compose.sidecar.yml up -d
+```
+
+Point your clients at port `8080` instead of your service directly. That is the complete integration — no code changes to your API required.
 
 ---
 
 ## Configuring policies
 
-Policies live in `src/main/resources/application.yml` under `gondorgates.policies`. Each policy targets a path and declares one or more dimensions.
+Policies live in `src/main/resources/application.yml` under `gondorgates.policies`. Each policy targets a path prefix and declares one or more dimensions:
 
 ```yaml
 gondorgates:
   policies:
     - path: /api/login
       dimensions:
-        - type: GLOBAL      # shared across all callers
+        - type: GLOBAL        # shared across all callers
           capacity: 100
-          refillRate: 10    # tokens per second
-        - type: USER        # per X-User-Id header value
+          refillRate: 10      # tokens added per second
+        - type: USER          # per X-User-Id header value
           capacity: 5
           refillRate: 1
 
-    - path: /api/orders
-      dimensions:
-        - type: GLOBAL
-          capacity: 500
-          refillRate: 50
-        - type: USER
-          capacity: 20
-          refillRate: 5
-
-    - path: /              # catch-all for unmatched paths
+    - path: /                 # catch-all for all unmatched paths
       dimensions:
         - type: GLOBAL
           capacity: 1000
@@ -161,20 +140,64 @@ gondorgates:
           refillRate: 10
 ```
 
-**Dimension types**
+**Path matching** uses longest-prefix-wins. `/api/orders/123` matches `/api/orders`. The `/` policy is the catch-all for any path not matched by a more specific entry.
 
-| Type | Identity key | Typical use |
+**Evaluation order** follows YAML declaration order. Put `GLOBAL` first so a shared-budget exhaustion short-circuits without charging per-user buckets.
+
+### Dimension types
+
+| Type | Identity key | Source |
 |---|---|---|
-| `GLOBAL` | `"GLOBAL"` (constant) | Protect the endpoint from aggregate traffic regardless of caller |
-| `USER` | Value of `X-User-Id` header, falls back to `"anonymous"` | Per-user quota |
-| `IP` | Remote IP address | Block abusive IPs independent of auth headers |
-| `API_KEY` | Value of `X-API-Key` header, falls back to `"anonymous"` | Tier-based API key quotas |
+| `GLOBAL` | `"GLOBAL"` (constant) | — |
+| `USER` | `X-User-Id` header value | Falls back to `"anonymous"` |
+| `IP` | Remote IP address | Falls back to `"unknown_ip"` |
+| `API_KEY` | `X-API-Key` header value | Falls back to `"anonymous"` |
 
-> **Anonymous fallback:** When `X-User-Id` or `X-API-Key` is absent, `USER` and `API_KEY` dimensions both fall back to the key `"anonymous"`. All unauthenticated callers share a single bucket — one abusive anonymous client can exhaust the quota and deny all others. If you need per-client isolation for unauthenticated traffic, use the `IP` dimension instead.
+> **Anonymous fallback**: when the identity header is absent, `USER` and `API_KEY` dimensions both fall back to the key `"anonymous"`. All unauthenticated callers share one bucket. Use the `IP` dimension for per-client isolation of unauthenticated traffic.
 
-**Path matching** uses longest-prefix-wins. `/api/orders/123` matches `/api/orders`, not `/`. The root `/` policy acts as the catch-all.
+### Environment variable policy config
 
-**Evaluation order** follows YAML declaration order. Put `GLOBAL` first so a shared budget exhaustion short-circuits without charging per-user buckets.
+Policies can be set entirely through environment variables — useful in the sidecar compose template where no file mounting is available:
+
+```bash
+GONDORGATES_POLICIES_0_PATH=/api/login
+GONDORGATES_POLICIES_0_DIMENSIONS_0_TYPE=GLOBAL
+GONDORGATES_POLICIES_0_DIMENSIONS_0_CAPACITY=100
+GONDORGATES_POLICIES_0_DIMENSIONS_0_REFILLRATE=10
+GONDORGATES_POLICIES_0_DIMENSIONS_1_TYPE=USER
+GONDORGATES_POLICIES_0_DIMENSIONS_1_CAPACITY=5
+GONDORGATES_POLICIES_0_DIMENSIONS_1_REFILLRATE=1
+```
+
+---
+
+## Admin REST API
+
+Change policies on a live instance without restarting. The API is **disabled by default** — enable it by setting `GONDORGATES_ADMIN_TOKEN`:
+
+```bash
+export GONDORGATES_ADMIN_TOKEN=$(openssl rand -hex 32)
+```
+
+All admin endpoints require `Authorization: Bearer <token>`. Without the env var set, the server returns `503 Service Unavailable`.
+
+| Endpoint | Description |
+|---|---|
+| `GET /admin/policies` | List all active policies (YAML baseline + runtime overrides) |
+| `POST /admin/policies` | Create or update a policy; takes effect on the next request |
+| `DELETE /admin/policies/{path}` | Remove a runtime override; YAML baseline takes effect immediately |
+
+```bash
+# Tighten /api/login to 3 requests per user
+curl -X POST http://localhost:8080/admin/policies \
+  -H "Authorization: Bearer $GONDORGATES_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/api/login", "dimensions": [{"type": "USER", "capacity": 3, "refillRate": 1}]}'
+
+# Restore the YAML default
+curl -X DELETE http://localhost:8080/admin/policies/api/login \
+  -H "Authorization: Bearer $GONDORGATES_ADMIN_TOKEN"
+```
 
 ---
 
@@ -184,223 +207,79 @@ gondorgates:
 |---|---|---|
 | `X-RateLimit-Limit` | Always | Capacity of the most restrictive dimension evaluated |
 | `X-RateLimit-Remaining` | Always | Minimum remaining tokens across all evaluated dimensions |
-| `X-RateLimit-Reset` | 429 response only | Unix timestamp (seconds) when the next token will be available |
-| `Retry-After` | 429 response only | Seconds until the next token is available |
+| `X-RateLimit-Reset` | 429 only | Unix timestamp (seconds) when the next token becomes available |
+| `Retry-After` | 429 only | Seconds until the next token becomes available |
+
+A denied request body: `{"error": "Too Many Requests"}`
 
 ---
 
-## HTTP responses
+## Observability
 
-| Status | Meaning |
-|---|---|
-| `2xx` | Request allowed. Backend response is passed through. |
-| `429 Too Many Requests` | Rate limit exceeded. Body: `{"error": "Too Many Requests"}`. Headers: `Retry-After`, `X-RateLimit-Reset`. |
+GondorGates exposes Micrometer metrics at `/actuator/prometheus`. Prometheus and a Grafana dashboard are included in the compose files — no manual import or configuration required.
 
----
+| Metric | Type | Tags |
+|---|---|---|
+| `gondor.requests.total` | Counter | `path`, `outcome` (allowed / denied) |
+| `gondor.filter.duration` | Timer | `path`, `outcome` |
+| `gondor.bucket.remaining` | Gauge | `path`, `dimension` |
+| `gondor.redis.eval.duration` | Timer | — |
+| `gondor.redis.errors.total` | Counter | — |
+| `gondor.admin.policies.active` | Gauge | — |
 
-## Adding GondorGates to your stack
-
-GondorGates runs as a sidecar container in front of your API. No code changes are required in your service.
-
-The image is published to GitHub Container Registry on every merge to `main`:
-
-```bash
-docker pull ghcr.io/kartik199/gondorgates:latest
-```
-
-Each build also produces an immutable short-SHA tag (e.g. `ghcr.io/kartik199/gondorgates:af8f619`) for reproducible deployments. SHA tags are listed under [Packages](https://github.com/Kartik199/GondorGates/pkgs/container/gondorgates).
-
-### Quick start
-
-**1. Copy the sidecar template into your project**
-
-```bash
-curl -O https://raw.githubusercontent.com/Kartik199/GondorGates/main/docker-compose.sidecar.yml
-```
-
-Or copy `docker-compose.sidecar.yml` from this repository.
-
-**2. Point it at your service**
-
-Edit the one line marked `<--` in the file:
-
-```yaml
-- BACKEND_URL=http://your-api:3000   # your service name and port
-```
-
-**3. Start the sidecar**
-
-```bash
-docker compose -f docker-compose.sidecar.yml up -d
-```
-
-This starts two containers: GondorGates (port 8080) and Redis. Your API container is unchanged.
-
-**4. Route traffic through GondorGates**
-
-Point your clients or load balancer at port `8080` instead of your service directly:
-
-```
-Before:  Client → your-api:3000
-After:   Client → GondorGates:8080 → your-api:3000
-```
-
-That is the complete integration. GondorGates enforces rate limits on every request and proxies allowed ones to your service transparently.
-
----
-
-### Configuring rate limits via environment variables
-
-Policies can be set entirely through environment variables — no file editing or rebuilding required. Spring Boot maps `GONDORGATES_POLICIES_{index}_*` to the policy list.
-
-```yaml
-environment:
-  # Policy 0 — strict login limit
-  - GONDORGATES_POLICIES_0_PATH=/api/login
-  - GONDORGATES_POLICIES_0_DIMENSIONS_0_TYPE=GLOBAL
-  - GONDORGATES_POLICIES_0_DIMENSIONS_0_CAPACITY=100
-  - GONDORGATES_POLICIES_0_DIMENSIONS_0_REFILLRATE=10
-  - GONDORGATES_POLICIES_0_DIMENSIONS_1_TYPE=USER
-  - GONDORGATES_POLICIES_0_DIMENSIONS_1_CAPACITY=5
-  - GONDORGATES_POLICIES_0_DIMENSIONS_1_REFILLRATE=1
-
-  # Policy 1 — relaxed orders limit
-  - GONDORGATES_POLICIES_1_PATH=/api/orders
-  - GONDORGATES_POLICIES_1_DIMENSIONS_0_TYPE=GLOBAL
-  - GONDORGATES_POLICIES_1_DIMENSIONS_0_CAPACITY=500
-  - GONDORGATES_POLICIES_1_DIMENSIONS_0_REFILLRATE=50
-```
-
-Any path not matched by a configured policy falls through to the `/` catch-all policy. The defaults in `application.yml` are GLOBAL: 1000 req / 100 per second, USER: 100 req / 10 per second. Override them by declaring a `/` entry in your `gondorgates.policies` config the same way you would any other path.
-
----
-
-### Headers your clients should send
-
-```http
-GET /api/orders HTTP/1.1
-Host: gondorgates:8080
-X-User-Id: user-123          ← drives the USER dimension
-X-API-Key: key-abc           ← drives the API_KEY dimension (takes priority over X-User-Id)
-```
-
-If `X-User-Id` is absent, the `USER` dimension falls back to `"anonymous"`. If `X-API-Key` is absent, the `API_KEY` dimension falls back to `"anonymous"`. The `IP` dimension uses the request's remote address and is only evaluated if your policy declares an `IP` dimension.
-
----
-
-### Security considerations
-
-**GondorGates trusts `X-User-Id` and `X-API-Key` headers as-is.** It does not validate, sign, or verify them. Any client that can reach GondorGates can send an arbitrary value in these headers — including impersonating another user or bypassing their own per-user limit.
-
-This is intentional: GondorGates is designed to run *behind* your ingress, not in front of it. The expected production topology is:
-
-```
-Internet → Load balancer / API Gateway (strips & injects identity headers) → GondorGates → Backend
-```
-
-**Before deploying to production:**
-- Strip `X-User-Id` and `X-API-Key` from all inbound client requests at your ingress or load balancer.
-- Inject them only after authentication — from a validated JWT claim, session token, or mTLS certificate.
-- If you deploy GondorGates as a public-facing endpoint without this stripping, per-user rate limits offer no protection.
-
-The `anonymous` fallback (used when identity headers are absent) creates a **shared bucket** across all unauthenticated callers. One abusive anonymous client can exhaust the anonymous quota and deny all other unauthenticated users.
-
----
-
-### Option A — Embed in an existing Spring WebFlux app
-
-If your backend is already a Spring WebFlux application, GondorGates can run in the same JVM instead of as a sidecar.
-
-1. Copy the `com.gondorgates.limiter` packages into your project.
-2. Add the `gondorgates.policies` block to your `application.yml`.
-3. Ensure Redis is reachable under `spring.data.redis`.
-4. Start your app — the filter registers itself at `@Order(-100)` and intercepts all requests automatically.
-
----
-
-## Inspecting bucket state in Redis
-
-```bash
-# Check the GLOBAL bucket for /api/login
-redis-cli HGETALL rate_limit:global:GLOBAL:/api/login
-
-# Check a specific user's bucket for /api/orders
-redis-cli HGETALL rate_limit:user:kartik:/api/orders
-```
-
-Each bucket hash contains two fields: `tokens` (current count) and `last_refill` (epoch millis of last successful grant).
+Grafana is at **http://localhost:3000** — anonymous viewer access is enabled for local use. An alert rule fires when `gondor.redis.errors.total` increases, signalling that Redis is unreachable and fail-open is active.
 
 ---
 
 ## Performance
 
-The load test in `k6/load-test.js` runs three scenarios back to back. The baseline scenario is specifically designed to isolate GondorGates' overhead from the underlying Spring WebFlux stack cost.
+Measured on local Docker (Apple Silicon) using the k6 load test in `k6/load-test.js`:
+
+| Scenario | P95 latency |
+|---|---|
+| Baseline — `/actuator/info`, no Redis call | ~9ms |
+| Rate-limited path — `/api/orders`, full filter path | ~14ms |
+| **GondorGates overhead** | **~5ms** (one Redis Lua round-trip) |
+
+**Correctness**: 20 concurrent VUs sharing one `X-User-Id` against a `capacity=5` bucket produced exactly 5 allowed requests out of 40 — no double-spend under load.
 
 ```bash
-docker compose -f docker-compose.yml up -d
+# Run the full stack and benchmark
+docker compose -f docker-compose.yml up -d --build
 BASE_URL=http://localhost:8080 k6 run k6/load-test.js
 ```
 
-**Correctness** — 20 VUs, 40 shared iterations, all targeting the same `X-User-Id` against `/api/login` (USER capacity = 5). Proves the atomic Lua script has no race condition under concurrent load.
-
-| Result | Value |
-|---|---|
-| Requests allowed | **5 out of 40** (exactly at capacity — no double-spend) |
-| Requests denied | 35 |
-
-**Baseline** — same 1→100 VU ramp and 100ms sleep as the throughput scenario, targeting `/actuator/info`. The `GondorGatesWebFilter` short-circuits immediately for `/actuator` paths and `/actuator/info` makes no Redis calls — it returns static app metadata only. Matching the VU ramp and sleep pacing makes the two P95 values directly comparable.
-
-| Metric | Value |
-|---|---|
-| P95 latency | **~9ms** |
-| P90 latency | ~8ms |
-| Average latency | ~4ms |
-
-**Throughput ramp** — ramps from 1 to 100 VUs over 2 minutes against `/api/orders`. Full filter path: policy resolution, Redis Lua eval, dimension evaluation, response headers.
-
-| Metric | Value |
-|---|---|
-| P95 latency | **~14ms** |
-| P90 latency | ~12ms |
-| Average latency | ~7ms |
-| Throughput | ~449 req/s |
-| Rate limiting fires | Yes — 429s observed throughout ramp |
-
-**GondorGates overhead (throughput P95 − baseline P95): ~5ms per request.** This is one Redis round-trip for the atomic Lua eval — all rate-limit state lives in Redis, so every request pays one network call to read, compute, and write the token bucket atomically.
-
-Measured on local Docker (Apple Silicon). Results will vary with hardware and network; the k6 threshold is set at `p(95) < 50ms` to accommodate CI environments.
+Results will vary with hardware and network. The k6 threshold is `p(95)<50ms` to accommodate CI environments.
 
 ---
 
-## Roadmap
+## Security
 
-| Epic | Status | Description |
-|---|---|---|
-| 0 — Infrastructure | Done | Spring WebFlux skeleton, Redis Docker Compose, GitHub Actions CI |
-| 1 — Core Engine | Done | Token Bucket model, `RateLimiter` interface, `RateLimitDecision` |
-| 2 — Redis Backend | Done | Atomic Lua script, `RedisRateLimiter`, fail-open strategy |
-| 3 — Web Filter | Done | `GondorGatesWebFilter`, `ClientIdentityResolver`, HTTP 429 handling |
-| 4 — Policy Engine | Done | YAML-driven policies, `PolicyResolver`, longest-match-wins |
-| 5 — Multi-Dimensional | Done | GLOBAL/USER/IP/API_KEY dimensions, hierarchical short-circuit |
-| 6 — Observability | Done | Micrometer + Prometheus metrics at `/actuator/prometheus` |
-| 7 — Grafana Dashboard | Done | Real-time per-endpoint dashboard, auto-provisioned, anonymous access |
-| 8 — Deployment | Done | Dockerfile (distroless), full Docker stack, proxy handler, k6 load tests |
-| 8b — Sidecar UX | Done | GHCR image publish, sidecar compose template, env var policy config |
-| 9 — Admin REST API | Done | Runtime policy changes without restart via `POST /admin/policies` |
-| 10 — Benchmark | Done | k6 load test with baseline comparison — overhead ~5ms per request (one Redis Lua round-trip), correctness verified |
+GondorGates trusts `X-User-Id` and `X-API-Key` headers as-is. It does not validate or verify them. Any caller that can reach the service can send an arbitrary header value.
+
+**Expected production topology:**
+
+```
+Internet → Load balancer / API Gateway
+              (strips inbound identity headers; injects them from validated JWT / session)
+                    → GondorGates → Backend
+```
+
+Before deploying: strip `X-User-Id` and `X-API-Key` from all inbound client requests at your ingress and reinject them only after authentication. Deploying GondorGates as a public-facing endpoint without this makes per-user and per-API-key limits trivially bypassable.
 
 ---
 
 ## Known limitations
 
-- **Single Redis instance** — Redis runs as a single node with no replication. A Redis restart causes fail-open (all rate limits suspended until Redis recovers and buckets rebuild from scratch). Redis Sentinel or Cluster is not implemented.
-- **Redis Cluster incompatible** — the key format (`rate_limit:{dimension}:{id}:{path}`) crosses hash slots arbitrarily. Running against Redis Cluster would produce `CROSSSLOT` errors from the Lua script.
-- **Header trust** — `X-User-Id` and `X-API-Key` are accepted as-is with no verification. Strip them at your ingress before production deployment. See [Security considerations](#security-considerations).
-- **Policy reload requires restart** — changes to `gondorgates.policies` in `application.yml` take effect only after a restart. For live changes, use the [Admin REST API](#admin-rest-api) (`POST /admin/policies`).
-- **No path-parameter awareness** — GondorGates matches on static path prefixes. `/api/users/123` and `/api/users/456` are treated identically and map to the same policy bucket.
+- **Single Redis node** — a Redis restart causes fail-open (rate limits suspended until Redis recovers and buckets rebuild from scratch). Redis Sentinel / Cluster not implemented.
+- **Redis Cluster incompatible** — the key format `rate_limit:{dimension}:{id}:{path}` crosses hash slots. Running against Redis Cluster produces `CROSSSLOT` errors from the Lua script.
+- **Header trust** — `X-User-Id` and `X-API-Key` are accepted without verification. Strip at ingress before production deployment.
+- **No path-parameter awareness** — `/api/users/123` and `/api/users/456` are treated identically and map to the same policy bucket.
+- **Admin token** — the static pre-shared secret has no expiry and no per-caller identity. Suitable for internal tooling; not appropriate for production admin exposure without additional hardening.
 
 ---
 
 ## Further reading
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full technical vision, architectural decision log, epic history, and planned next steps.
+- **[QUICKSTART.md](QUICKSTART.md)** — end-to-end walkthrough: stand up a sample backend, hit rate limits, watch Grafana, change limits live.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — token bucket design, architectural decision log, component reference, build history.
