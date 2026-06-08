@@ -88,7 +88,7 @@ done
 
 The first 5 requests return `HTTP 200`. Request 6 onward returns `HTTP 429` — the default `/api/login` USER policy has `capacity: 5`.
 
-For a full end-to-end walkthrough (sample backend, Grafana, live policy changes), see **[QUICKSTART.md](QUICKSTART.md)**.
+For a full end-to-end walkthrough (sample backend, Grafana, live policy changes), see **[QUICKSTART]({% link QUICKSTART.md %})**.
 
 ---
 
@@ -281,5 +281,5 @@ Before deploying: strip `X-User-Id` and `X-API-Key` from all inbound client requ
 
 ## Further reading
 
-- **[QUICKSTART.md](QUICKSTART.md)** — end-to-end walkthrough: stand up a sample backend, hit rate limits, watch Grafana, change limits live.
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — token bucket design, architectural decision log, component reference, build history.
+- **[QUICKSTART]({% link QUICKSTART.md %})** — end-to-end walkthrough: stand up a sample backend, hit rate limits, watch Grafana, change limits live.
+- **[ARCHITECTURE]({% link ARCHITECTURE.md %})** — token bucket design, architectural decision log, component reference, build history.
