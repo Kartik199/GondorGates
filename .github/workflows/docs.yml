@@ -7,6 +7,8 @@ on:
       - '**.md'
       - '_config.yml'
       - 'Gemfile'
+      - 'src/**'
+      - 'pom.xml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -20,12 +22,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build Jekyll site
+  generate-spec:
+    name: Generate OpenAPI spec
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Start app and export spec
+        run: |
+          ./mvnw -B spring-boot:run -DskipTests > /tmp/app.log 2>&1 &
+          timeout 120 bash -c 'until curl -sf http://localhost:8080/actuator/health > /dev/null; do sleep 3; done'
+          curl -sf http://localhost:8080/v3/api-docs.yaml -o openapi.yaml
+          pkill -f GondorGatesApplication || true
+        env:
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
+
+      - name: Upload spec artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: openapi.yaml
+          retention-days: 1
+
+  build:
+    name: Build Jekyll site
+    runs-on: ubuntu-latest
+    needs: generate-spec
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download OpenAPI spec
+        uses: actions/download-artifact@v4
+        with:
+          name: openapi-spec
 
       - name: Verify Jekyll frontmatter
         run: |
