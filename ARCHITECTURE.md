@@ -33,13 +33,13 @@ It is **not** a service mesh, a full API gateway, or a quota-billing system. It 
 | `GondorGatesWebFilter` | `filter` | Spring WebFlux `WebFilter` at `@Order(-100)`. Intercepts every non-admin, non-actuator request. Resolves policy, evaluates dimensions serially, writes response headers, proxies or delegates. |
 | `AdminAuthWebFilter` | `admin` | `WebFilter` at `@Order(-99)`. Guards all `/admin/*` paths. Returns `503` when `GONDORGATES_ADMIN_TOKEN` is unset; `401` for an invalid token. Uses constant-time comparison (`MessageDigest.isEqual`) to prevent timing attacks. |
 | `PolicyResolver` | `policy` | On each request, checks the `PolicyStore` for a Redis override (exact path match) first, then falls through to the YAML policies sorted by path length descending (longest-prefix wins). |
-| `RedisPolicyStore` | `admin` | In-memory `ConcurrentHashMap` cache of admin overrides, populated at startup via `@PostConstruct` from Redis. `save` and `delete` update Redis and the cache atomically. Implements the `PolicyStore` interface. |
+| `RedisPolicyStore` | `admin` | In-memory `ConcurrentHashMap` cache of admin overrides, populated at startup via `@PostConstruct` from Redis. `save` and `delete` update Redis and the cache atomically; both return `503` if Redis is unreachable. `listAll` reads from the cache only — unaffected by Redis availability. Implements the `PolicyStore` interface. |
 | `ClientIdentityResolver` | `filter` | Extracts the identity string for a dimension: `GLOBAL` → `"GLOBAL"`, `USER` → `X-User-Id` header (falls back to `"anonymous"`), `IP` → remote address (falls back to `"unknown_ip"`), `API_KEY` → `X-API-Key` header (falls back to `"anonymous"`). |
 | `RedisRateLimiter` | `engine` | Executes `token_bucket.lua` via `ReactiveStringRedisTemplate`. On Redis error, increments `gondor.redis.errors.total` and returns an allow decision (fail-open). |
 | `token_bucket.lua` | `resources` | Atomic server-side Lua script. One round-trip: reads `HMGET`, computes refill, makes decision, writes `HMSET`, sets `EXPIRE`. Returns `{allowed, remaining_tokens, retry_after_ms}`. |
 | `RateLimitKeyUtils` | `util` | Builds Redis keys: `rate_limit:{dimension}:{id}:{path}` — e.g. `rate_limit:user:alice:/api/login`. |
 | `BackendProxyHandler` | `proxy` | Transparent WebClient proxy. Activated when `BACKEND_URL` env var is set. Strips hop-by-hop headers, forwards method / path / query / body, streams the response back. When `BACKEND_URL` is blank, the filter falls through to `chain.filter()` unchanged. |
-| `AdminPolicyController` | `admin` | REST controller for `GET /admin/policies`, `POST /admin/policies`, `DELETE /admin/policies/**`. Input validated with JSR-380 constraints (`@NotBlank`, `@NotEmpty`, `@Positive`). |
+| `AdminPolicyController` | `admin` | REST controller for `GET /admin/policies`, `POST /admin/policies`, `DELETE /admin/policies/{path}`. Input validated with JSR-380 constraints (`@NotBlank`, `@NotEmpty`, `@Positive`). |
 
 ---
 
@@ -167,7 +167,7 @@ An alert rule is provisioned at `grafana/provisioning/alerting/gondor-alerts.yml
 
 ## Known limitations
 
-- **Single Redis node** — Redis is a single point of failure. A restart causes fail-open and cold-start empty buckets (all counters reset). Fail-open is intentional — see [Fail-open over fail-closed](#fail-open-over-fail-closed).
+- **Single Redis node** — Redis is a single point of failure. A restart causes fail-open and cold-start empty buckets (all counters reset). Fail-open is intentional — see [Fail-open over fail-closed](#fail-open-over-fail-closed). Admin write operations (`POST`, `DELETE`) return `503` when Redis is unreachable; `GET` reads from the in-memory cache and is unaffected.
 - **Redis Cluster incompatible** — the key format `rate_limit:{dimension}:{id}:{path}` crosses hash slots arbitrarily. Running against Redis Cluster produces `CROSSSLOT` errors from the Lua script. Hash tags (e.g. `rate_limit:{user:alice}:/api/login`) would fix this but are not implemented.
 - **Header trust** — `X-User-Id` and `X-API-Key` are accepted without verification. Deploying without an ingress that strips these headers makes per-user and per-key limits bypassable.
 - **No path-parameter awareness** — GondorGates matches on static path prefixes. `/api/users/123` and `/api/users/456` are treated identically and map to the same bucket.

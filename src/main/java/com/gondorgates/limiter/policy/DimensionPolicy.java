@@ -12,11 +12,11 @@ public class DimensionPolicy {
     private RateLimitDimension type;
 
     @Positive(message = "capacity must be greater than zero")
-    @Schema(description = "Maximum token bucket size — burst ceiling", example = "5")
+    @Schema(description = "Maximum token bucket size — burst ceiling", example = "5", minimum = "1")
     private int capacity;
 
     @Positive(message = "refillRate must be greater than zero")
-    @Schema(description = "Tokens added per second", example = "1")
+    @Schema(description = "Tokens added per second", example = "1", minimum = "1")
     private int refillRate;
 
     public DimensionPolicy() {}
