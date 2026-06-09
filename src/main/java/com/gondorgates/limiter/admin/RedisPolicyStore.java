@@ -7,7 +7,9 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -66,13 +68,19 @@ public class RedisPolicyStore implements PolicyStore {
         }
         return redis.opsForValue().set(KEY_PREFIX + policy.getPath(), json)
                 .then(redis.opsForSet().add(INDEX_KEY, policy.getPath()).then())
-                .doOnSuccess(v -> cache.put(policy.getPath(), policy));
+                .doOnSuccess(v -> cache.put(policy.getPath(), policy))
+                .onErrorMap(e -> !(e instanceof ResponseStatusException),
+                        e -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                                "Redis unavailable — policy not persisted"));
     }
 
     public Mono<Void> delete(String path) {
         return redis.delete(KEY_PREFIX + path)
                 .then(redis.opsForSet().remove(INDEX_KEY, (Object) path).then())
-                .doOnSuccess(v -> cache.remove(path));
+                .doOnSuccess(v -> cache.remove(path))
+                .onErrorMap(e -> !(e instanceof ResponseStatusException),
+                        e -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                                "Redis unavailable — policy not deleted"));
     }
 
     private RateLimitPolicy deserialize(String json) throws JsonProcessingException {

@@ -3,14 +3,14 @@ package com.gondorgates.limiter.admin;
 import com.gondorgates.limiter.config.GondorGatesProperties;
 import com.gondorgates.limiter.policy.RateLimitPolicy;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
@@ -53,7 +53,7 @@ public class AdminPolicyController {
         @ApiResponse(responseCode = "200", description = "Policy saved"),
         @ApiResponse(responseCode = "400", description = "Validation failed — path blank, dimensions empty, capacity or refillRate <= 0"),
         @ApiResponse(responseCode = "401", description = "Missing or invalid Bearer token"),
-        @ApiResponse(responseCode = "503", description = "Admin API disabled — GONDORGATES_ADMIN_TOKEN not set")
+        @ApiResponse(responseCode = "503", description = "Admin API disabled (GONDORGATES_ADMIN_TOKEN not set) or Redis unavailable")
     })
     public Mono<ResponseEntity<Object>> upsertPolicy(@Valid @RequestBody RateLimitPolicy policy) {
         return policyStore.save(policy)
@@ -61,25 +61,24 @@ public class AdminPolicyController {
                         .<Object>body(Map.of("path", policy.getPath(), "status", "saved")));
     }
 
-    @DeleteMapping("/policies/**")
+    @DeleteMapping("/policies/{*path}")
     @Operation(summary = "Delete a policy override",
                description = "Removes a runtime Redis override for the given path. " +
-                             "The YAML baseline policy (if any) takes effect immediately on the next request. " +
-                             "Example: DELETE /admin/policies/api/login")
+                             "The YAML baseline policy (if any) takes effect immediately on the next request.")
     @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "Override deleted"),
+        @ApiResponse(responseCode = "204", description = "Override deleted", content = @Content),
         @ApiResponse(responseCode = "400", description = "Path segment missing from URL"),
         @ApiResponse(responseCode = "401", description = "Missing or invalid Bearer token"),
-        @ApiResponse(responseCode = "503", description = "Admin API disabled — GONDORGATES_ADMIN_TOKEN not set")
+        @ApiResponse(responseCode = "503", description = "Admin API disabled (GONDORGATES_ADMIN_TOKEN not set) or Redis unavailable")
     })
-    public Mono<ResponseEntity<Object>> deletePolicy(ServerHttpRequest request) {
-        String fullPath = request.getPath().value();
-        String policyPath = fullPath.substring("/admin/policies".length());
-        if (!StringUtils.hasText(policyPath)) {
+    public Mono<ResponseEntity<Object>> deletePolicy(
+            @Parameter(description = "Policy path to delete, e.g. /api/login", example = "/api/login")
+            @PathVariable String path) {
+        if (!path.startsWith("/") || path.equals("/")) {
             return Mono.just(ResponseEntity.badRequest()
                     .body(Map.of("error", "path is required — e.g. DELETE /admin/policies/api/login")));
         }
-        return policyStore.delete(policyPath)
+        return policyStore.delete(path)
                 .thenReturn(ResponseEntity.<Object>noContent().build());
     }
 }

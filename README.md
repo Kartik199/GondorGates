@@ -8,6 +8,7 @@ description: GondorGates — Horizontally scalable API rate-limiting gateway
 # GondorGates
 
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://kartik199.github.io/GondorGates/)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.1-green)](https://kartik199.github.io/GondorGates/openapi.yaml)
 
 > Horizontally scalable API rate-limiting gateway — atomic, reactive, zero-lock.
 
@@ -189,7 +190,7 @@ Change policies on a live instance without restarting. The API is **disabled by 
 export GONDORGATES_ADMIN_TOKEN=$(openssl rand -hex 32)
 ```
 
-All admin endpoints require `Authorization: Bearer <token>`. Without the env var set, the server returns `503 Service Unavailable`.
+All admin endpoints require `Authorization: Bearer <token>`. Without the env var set, the server returns `503 Service Unavailable`. `POST` and `DELETE` also return `503` if Redis is unavailable; `GET` is served from the in-memory cache and is unaffected.
 
 | Endpoint | Description |
 |---|---|
@@ -281,7 +282,7 @@ Before deploying: strip `X-User-Id` and `X-API-Key` from all inbound client requ
 
 ## Known limitations
 
-- **Single Redis node** — a Redis restart causes fail-open (rate limits suspended until Redis recovers and buckets rebuild from scratch). Redis Sentinel / Cluster not implemented.
+- **Single Redis node** — a Redis restart causes fail-open (rate limits suspended until Redis recovers and buckets rebuild from scratch). Redis Sentinel / Cluster not implemented. `POST` and `DELETE` on the Admin API return `503` when Redis is unreachable; `GET` is unaffected (served from the in-memory cache).
 - **Redis Cluster incompatible** — the key format `rate_limit:{dimension}:{id}:{path}` crosses hash slots. Running against Redis Cluster produces `CROSSSLOT` errors from the Lua script.
 - **Header trust** — `X-User-Id` and `X-API-Key` are accepted without verification. Strip at ingress before production deployment.
 - **No path-parameter awareness** — `/api/users/123` and `/api/users/456` are treated identically and map to the same policy bucket.
