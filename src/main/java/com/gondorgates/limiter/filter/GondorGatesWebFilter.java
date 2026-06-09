@@ -52,7 +52,9 @@ public class GondorGatesWebFilter implements WebFilter {
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
         String path = exchange.getRequest().getPath().value();
 
-        if (path.startsWith("/actuator") || path.startsWith("/admin")) {
+        if (path.startsWith("/actuator") || path.startsWith("/admin")
+                || path.startsWith("/swagger-ui") || path.startsWith("/v3/api-docs")
+                || path.startsWith("/webjars")) {
             return chain.filter(exchange);
         }
 
