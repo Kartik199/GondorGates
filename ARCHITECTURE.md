@@ -189,9 +189,6 @@ Detect sustained violation patterns (e.g. 500 denied requests in 60 seconds from
 ### Admin API hardening
 Options: (a) mTLS — mutual certificate auth, no token required; (b) short-lived JWT issued by a separate identity service; (c) at minimum, a token rotation mechanism that takes effect without restart.
 
-### OpenAPI / Swagger
-The admin REST API has no machine-readable contract. Adding `springdoc-openapi-starter-webflux-ui` would auto-generate a Swagger UI at `/swagger-ui.html` and an OpenAPI JSON at `/v3/api-docs`.
-
 ### Multi-tenant isolation
 Tenant-aware key namespacing (`rate_limit:{tenantId}:{dimension}:{id}:{path}`) so one GondorGates instance can serve multiple products with isolated budgets.
 
@@ -243,6 +240,9 @@ Multi-stage `Dockerfile` — Maven build layer cached separately from app layer;
 
 ### Epic 10 — Benchmark
 k6 load test fixed for k6 v2.0 compatibility (`setup()` for shared state, `responseCallback` to exclude expected 429s). Baseline scenario added (same VU ramp as throughput, targeting `/actuator/info` which makes no Redis calls) to isolate GondorGates overhead. Measured results: baseline P95 ~9ms, throughput P95 ~14ms — overhead ~5ms per request (one Redis Lua round-trip). Correctness verified: exactly 5 requests allowed out of 40 concurrent against a `capacity=5` USER bucket.
+
+### Epic 11 — OpenAPI / Swagger
+`springdoc-openapi-starter-webflux-ui` 2.8.6 added. `OpenApiConfig` declares the API title, version, and `bearerAuth` security scheme. `@Operation`, `@ApiResponse`, and `@SecurityRequirement` annotations on `AdminPolicyController`. `@Schema` annotations on `RateLimitPolicy`, `DimensionPolicy`, and `RateLimitDimension`. `GondorGatesWebFilter` updated to bypass rate limiting for `/swagger-ui/**`, `/v3/api-docs/**`, and `/webjars/**`. Swagger UI live at `/swagger-ui.html`; spec at `/v3/api-docs` (JSON) and `/v3/api-docs.yaml`. The `docs.yml` GitHub Actions workflow extended with a `generate-spec` job (Redis service container, app startup, curl) that exports `openapi.yaml` to GitHub Pages on every push to main — permanent spec URL: `https://kartik199.github.io/GondorGates/openapi.yaml`.
 
 ### Code quality pass (post-epic)
 Applied after all epics; no behaviour changes.

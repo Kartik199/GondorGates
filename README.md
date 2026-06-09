@@ -175,6 +175,14 @@ GONDORGATES_POLICIES_0_DIMENSIONS_1_REFILLRATE=1
 
 ## Admin REST API
 
+The Admin API has a full interactive reference at **[/swagger-ui.html](http://localhost:8080/swagger-ui.html)** when the app is running, and a permanent machine-readable spec at:
+
+```
+https://kartik199.github.io/GondorGates/openapi.yaml
+```
+
+Import that URL directly into Postman, Insomnia, or any OpenAPI-compatible tool to get all endpoints pre-populated.
+
 Change policies on a live instance without restarting. The API is **disabled by default** — enable it by setting `GONDORGATES_ADMIN_TOKEN`:
 
 ```bash
@@ -285,3 +293,4 @@ Before deploying: strip `X-User-Id` and `X-API-Key` from all inbound client requ
 
 - **[QUICKSTART](https://kartik199.github.io/GondorGates/QUICKSTART/)** — end-to-end walkthrough: stand up a sample backend, hit rate limits, watch Grafana, change limits live.
 - **[ARCHITECTURE](https://kartik199.github.io/GondorGates/ARCHITECTURE/)** — token bucket design, architectural decision log, component reference, build history.
+- **[OpenAPI spec](https://kartik199.github.io/GondorGates/openapi.yaml)** — machine-readable Admin API contract (OpenAPI 3.1 YAML); import into Postman, Insomnia, or any code generator.
