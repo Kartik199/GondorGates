@@ -7,6 +7,8 @@ description: GondorGates — Horizontally scalable API rate-limiting gateway
 
 # GondorGates
 
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://kartik199.github.io/GondorGates/)
+
 > Horizontally scalable API rate-limiting gateway — atomic, reactive, zero-lock.
 
 GondorGates sits in front of your backend services and enforces configurable traffic limits per endpoint, per caller dimension (global, per-user, per-IP, per-API key). Every decision is made by a single atomic Redis Lua script in one round-trip. No distributed locks, no application-level CAS loops, no background jobs.
@@ -88,7 +90,7 @@ done
 
 The first 5 requests return `HTTP 200`. Request 6 onward returns `HTTP 429` — the default `/api/login` USER policy has `capacity: 5`.
 
-For a full end-to-end walkthrough (sample backend, Grafana, live policy changes), see **[QUICKSTART]({% link QUICKSTART.md %})**.
+For a full end-to-end walkthrough (sample backend, Grafana, live policy changes), see **[QUICKSTART](https://kartik199.github.io/GondorGates/QUICKSTART/)**.
 
 ---
 
@@ -281,5 +283,5 @@ Before deploying: strip `X-User-Id` and `X-API-Key` from all inbound client requ
 
 ## Further reading
 
-- **[QUICKSTART]({% link QUICKSTART.md %})** — end-to-end walkthrough: stand up a sample backend, hit rate limits, watch Grafana, change limits live.
-- **[ARCHITECTURE]({% link ARCHITECTURE.md %})** — token bucket design, architectural decision log, component reference, build history.
+- **[QUICKSTART](https://kartik199.github.io/GondorGates/QUICKSTART/)** — end-to-end walkthrough: stand up a sample backend, hit rate limits, watch Grafana, change limits live.
+- **[ARCHITECTURE](https://kartik199.github.io/GondorGates/ARCHITECTURE/)** — token bucket design, architectural decision log, component reference, build history.
